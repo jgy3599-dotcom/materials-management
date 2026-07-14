@@ -73,11 +73,15 @@ def load_history():
             "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
             "수량": row["quantity"],
             "담당자": row["manager"],
+            "설비ID": row["equipment_id"],
+            "문제": row["problem"],
+            "조치": row["action_taken"],
+            "부품메모": row["part_memo"],
             "비고": row["note"],
         }
         for row in data
     ]
-    return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "담당자", "비고"])
+    return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "담당자", "설비ID", "문제", "조치", "부품메모", "비고"])
 
 
 # 표준재고에서 현재재고를 뺀 값(구매필요 수량)을 매번 다시 계산해서 표에 붙여줍니다.
@@ -110,3 +114,20 @@ def insert_history(data):
 
 def update_material_qty(material_id, new_qty):
     get_authed_client().table("materials").update({"current_qty": new_qty}).eq("id", material_id).execute()
+
+
+# 관리자가 자재를 수정/삭제할 때마다 남기는 감사 로그입니다.
+def insert_audit_log(actor_email, action, material_id, part_name, before_data, after_data=None):
+    get_authed_client().table("audit_log").insert({
+        "actor_email": actor_email,
+        "action": action,
+        "material_id": material_id,
+        "part_name": part_name,
+        "before_data": before_data,
+        "after_data": after_data,
+    }).execute()
+
+
+def load_audit_log():
+    res = get_authed_client().table("audit_log").select("*").order("id", desc=True).limit(200).execute()
+    return pd.DataFrame(res.data)

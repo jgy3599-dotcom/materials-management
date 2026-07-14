@@ -7,6 +7,10 @@ import db
 import auth
 import mail
 
+# 감사 로그는 관리자보다 더 높은 권한으로, 이 계정에서만 볼 수 있게 제한합니다.
+# (실제 차단은 Supabase의 RLS 정책이 하고, 이건 화면에 아예 안 보이게 하는 용도입니다.)
+SUPER_ADMIN_EMAIL = "gyjeong@hanjin.com"
+
 # 차트에서 카테고리마다 항상 같은 색을 쓰도록 고정해둔 표입니다.
 # (필터링을 해도 색이 바뀌면 헷갈리기 때문에, 카테고리:색을 1:1로 고정합니다.)
 CATEGORY_COLORS = {
@@ -58,11 +62,13 @@ def edit_material_dialog(material_id):
             if not part:
                 st.error("부품명(규격)은 반드시 입력해야 합니다.")
             else:
-                db.update_material(material_id, {
+                after_data = {
                     "category": category, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
-                })
+                }
+                db.update_material(material_id, after_data)
+                db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, after_data)
                 st.success(f"'{part}' 자재가 수정되었습니다.")
                 st.rerun()
 
@@ -72,6 +78,7 @@ def edit_material_dialog(material_id):
         if delete_clicked:
             try:
                 db.delete_material(material_id)
+                db.insert_audit_log(st.session_state.user_email, "delete", material_id, row["part_name"], row)
                 st.success(f"'{row['part_name']}' 자재가 삭제되었습니다.")
                 st.rerun()
             except APIError:
@@ -150,14 +157,25 @@ with tab1:
                     if c5.button("✏️", key=f"edit_btn_{int(r['id'])}", use_container_width=True):
                         edit_material_dialog(int(r["id"]))
 
+        if st.session_state.user_email == SUPER_ADMIN_EMAIL:
+            with st.expander("🗒️ 감사 로그 (최근 수정/삭제 이력)"):
+                st.dataframe(db.load_audit_log(), use_container_width=True)
+
 # ---------- 탭 2: 자재 등록 ----------
 with tab2:
     st.subheader("새 자재 등록")
+    # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 목록에 없는 완전히 새로운
+    # 카테고리를 등록해야 할 수도 있으니 "직접 입력" 옵션도 함께 둡니다.
+    NEW_CATEGORY_OPTION = "➕ 새 카테고리 직접 입력"
+    existing_categories = sorted(db.load_materials()["카테고리"].dropna().unique().tolist())
+    category_options = existing_categories + [NEW_CATEGORY_OPTION]
+
     # form()으로 감싼 입력창들은 "등록하기" 버튼을 눌러야 한번에 처리됩니다.
     with st.form("register_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            category = st.text_input("카테고리")
+            category_choice = st.selectbox("카테고리", category_options)
+            new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
             part = st.text_input("부품명(규격)")
             location = st.text_input("설치위치")
             manufacturer = st.text_input("제조사", value="-")
@@ -172,8 +190,11 @@ with tab2:
         submitted = st.form_submit_button("등록하기")
 
         if submitted:
+            category = new_category if category_choice == NEW_CATEGORY_OPTION else category_choice
             if not part:
                 st.error("부품명(규격)은 반드시 입력해야 합니다.")
+            elif category_choice == NEW_CATEGORY_OPTION and not new_category:
+                st.error("새 카테고리명을 입력해주세요.")
             else:
                 db.insert_material({
                     "category": category, "part_name": part, "install_location": location,
@@ -214,7 +235,17 @@ with tab3:
                 move_qty = st.number_input("수량", min_value=1, step=1)
                 move_date = st.date_input("일자", value=date.today())
             manager = st.text_input("담당자")
-            note = st.text_input("비고")
+
+            # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다. (구매/입고 등록에는 비워두면 됩니다)
+            st.caption("아래는 설비 교체 작업일 때만 채워주세요 (구매/입고 등록에는 비워둬도 됩니다)")
+            col3, col4 = st.columns(2)
+            with col3:
+                equipment_id = st.text_input("설비 ID (예: LD451 RK003)")
+                problem = st.text_input("문제/고장 내역")
+            with col4:
+                action_taken = st.text_input("조치 내역")
+                part_memo = st.text_input("부품 메모")
+            note = st.text_input("비고 (그 외 자유 메모)")
 
             submitted = st.form_submit_button("등록하기")
 
@@ -226,7 +257,9 @@ with tab3:
                 db.insert_history({
                     "occurred_on": move_date.isoformat(), "direction": direction,
                     "material_id": material_id, "quantity": move_qty,
-                    "manager": manager, "note": note,
+                    "manager": manager, "note": note or None,
+                    "equipment_id": equipment_id or None, "problem": problem or None,
+                    "action_taken": action_taken or None, "part_memo": part_memo or None,
                 })
 
                 # 입고면 현재재고를 늘리고, 출고면 현재재고를 줄여서 materials 테이블에도 반영합니다.

@@ -2,3 +2,4 @@
 __pycache__/
 *.pyc
 부품관리.xlsx
+electric_category_duplicates.txt
