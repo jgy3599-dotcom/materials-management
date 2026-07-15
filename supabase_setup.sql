@@ -131,3 +131,43 @@ create policy "admin insert boq" on boq
     for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 create policy "admin update boq" on boq
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+-- 구매 요청 워크플로우 테이블입니다.
+-- 상태 흐름: 요청됨 -> 검토중 -> 승인됨 -> 구매중 -> 입고완료 (검토중/승인됨 단계에서 반려됨으로 갈 수 있음)
+-- 입고완료로 바뀌는 시점에 앱에서 materials.current_qty를 올리고 history에도 입고 기록을 남깁니다.
+create table purchase_requests (
+    id bigint generated always as identity primary key,
+    material_id bigint not null references materials (id),
+    requested_qty integer not null,
+    status text not null default '요청됨',
+    requester_email text not null,
+    request_note text,
+    reject_reason text,
+    vendor text,
+    unit_price numeric,
+    received_qty integer,
+    requested_at timestamptz not null default now(),
+    reviewed_at timestamptz,
+    approved_at timestamptz,
+    rejected_at timestamptz,
+    purchased_at timestamptz,
+    received_at timestamptz,
+    history_id bigint references history (id)  -- 입고 처리 시 생성된 입출고 이력 행. 삭제(원복) 시 이걸 같이 지웁니다.
+);
+
+alter table purchase_requests enable row level security;
+
+-- 로그인한 사람이면 누구나 조회/요청 등록 가능, 상태 전환(수정)은 관리자만
+create policy "authenticated select purchase_requests" on purchase_requests
+    for select using (auth.role() = 'authenticated');
+create policy "authenticated insert purchase_requests" on purchase_requests
+    for insert with check (auth.role() = 'authenticated');
+create policy "admin update purchase_requests" on purchase_requests
+    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin delete purchase_requests" on purchase_requests
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+-- 잘못 입고 처리된 구매요청을 삭제(원복)할 때, 그때 같이 생성된 입출고 이력도
+-- 함께 지울 수 있도록 관리자에게 history 삭제 권한을 엽니다.
+create policy "admin delete history" on history
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');

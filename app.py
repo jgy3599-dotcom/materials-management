@@ -71,6 +71,80 @@ def edit_material_dialog(material_id):
                 # 이 자재를 참조하는 입출고 이력이 남아있으면 삭제가 거부됩니다.
                 st.error("이 자재는 입출고 이력이 남아있어 삭제할 수 없습니다. 이력을 먼저 정리해주세요.")
 
+# 구매 요청 하나를 다음 단계로 진행시키는 팝업창입니다. 관리자 전용입니다.
+# 요청의 현재 상태에 따라 보여주는 버튼/입력칸이 달라집니다.
+@st.dialog("구매 요청 처리")
+def purchase_request_dialog(request_id):
+    requests_df = db.load_purchase_requests()
+    row = requests_df[requests_df["id"] == request_id].iloc[0]
+
+    st.write(f"**{row['부품명(규격)']}**  (요청수량: {row['요청수량']})")
+    st.caption(f"표준재고: {row['표준재고']}   /   현재재고: {row['현재재고']}")
+    st.caption(f"요청자: {row['요청자']}")
+    if row["요청사유"]:
+        st.caption(f"요청사유: {row['요청사유']}")
+    st.write(f"현재 상태: **{row['상태']}**")
+
+    status = row["상태"]
+
+    if status == "요청됨":
+        if st.button("검토 시작", use_container_width=True):
+            db.start_review(request_id)
+            st.rerun()
+
+    elif status == "검토중":
+        # 재고를 확인해보니 실제로 필요한 수량이 다를 수 있어서, 승인 시점에 수량을 고칠 수 있게 합니다.
+        reviewed_qty = st.number_input("승인할 수량 (필요하면 수정)", min_value=1, step=1, value=int(row["요청수량"]))
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ 승인", use_container_width=True):
+                db.approve_request(request_id, reviewed_qty)
+                st.rerun()
+        with col2:
+            reject_reason = st.text_input("반려 사유")
+            if st.button("❌ 반려", use_container_width=True):
+                if not reject_reason:
+                    st.error("반려 사유를 입력해주세요.")
+                else:
+                    db.reject_request(request_id, reject_reason)
+                    st.rerun()
+
+    elif status == "승인됨":
+        with st.form("purchasing_form"):
+            vendor = st.text_input("거래업체")
+            unit_price = st.number_input("단가", min_value=0, step=100)
+            submitted = st.form_submit_button("구매 처리 (발주 완료)")
+            if submitted:
+                if not vendor:
+                    st.error("거래업체를 입력해주세요.")
+                else:
+                    db.mark_purchasing(request_id, vendor, unit_price)
+                    st.rerun()
+
+    elif status == "구매중":
+        with st.form("receive_form"):
+            received_qty = st.number_input("입고 수량", min_value=1, step=1, value=int(row["요청수량"]))
+            submitted = st.form_submit_button("입고 처리 (재고 반영)")
+            if submitted:
+                db.receive_request(request_id, int(row["material_id"]), received_qty, row["거래업체"])
+                st.success("입고 처리 완료, 현재재고에 반영되었습니다.")
+                st.rerun()
+
+    else:
+        st.info("이미 종료된 요청입니다 (입고완료 또는 반려됨).")
+
+    st.divider()
+    with st.expander("🗑️ 이 요청 삭제"):
+        if status == "입고완료":
+            st.warning(f"입고완료 상태입니다. 삭제하면 현재재고에서 {row['입고수량']}개를 다시 빼고, 관련 입출고 이력도 함께 삭제합니다.")
+        else:
+            st.caption("아직 입고 전이라 재고에는 영향이 없습니다.")
+        confirm = st.checkbox("삭제하겠습니다", key=f"confirm_delete_pr_{request_id}")
+        if st.button("삭제", type="primary", disabled=not confirm):
+            db.delete_purchase_request(request_id)
+            st.success("삭제했습니다.")
+            st.rerun()
+
 auth.check_login()
 auth.render_sidebar()
 
@@ -84,8 +158,8 @@ if _need_purchase_count > 0:
     st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
 # tabs()는 화면 안에 탭(클릭해서 전환하는 페이지)을 여러 개 만들어줍니다.
-tab1, tab2, tab3, tab4, tab5 = st.tabs(
-    ["📋 자재 목록", "➕ 자재 등록", "🔄 입출고 이력", "🔍 검색/필터", "⚠️ 구매 필요 알림"]
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
+    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "🔍 검색/필터", "⚠️ 구매 필요 알림", "🛒 구매 요청"]
 )
 
 # ---------- 탭 1: 자재 목록 ----------
@@ -191,13 +265,16 @@ with tab2:
                 st.success(f"'{part}' 자재가 등록되었습니다.")
                 st.rerun()
 
-# ---------- 탭 3: 입출고 이력 ----------
+# ---------- 탭 3: 사용(출고) 이력 ----------
+# 입고(구매) 이력은 '🛒 구매 요청' 탭에서 따로 관리합니다. 여기는 설비 교체 등으로
+# 자재가 나간(출고) 기록만 다룹니다.
 with tab3:
-    st.subheader("입출고 이력")
-    st.dataframe(db.load_history(), use_container_width=True)
+    st.subheader("사용(출고) 이력")
+    history_df = db.load_history()
+    st.dataframe(history_df[history_df["구분"] == "출고"], use_container_width=True)
 
     st.divider()
-    st.subheader("입출고 등록")
+    st.subheader("출고 등록")
     materials = db.load_materials()
 
     if materials.empty:
@@ -217,14 +294,12 @@ with tab3:
             col1, col2 = st.columns(2)
             with col1:
                 selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
-                direction = st.radio("구분", ["입고", "출고"], horizontal=True)
-            with col2:
                 move_qty = st.number_input("수량", min_value=1, step=1)
+            with col2:
                 move_date = st.date_input("일자", value=date.today())
-            manager = st.text_input("담당자")
+                manager = st.text_input("담당자")
 
-            # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다. (구매/입고 등록에는 비워두면 됩니다)
-            st.caption("아래는 설비 교체 작업일 때만 채워주세요 (구매/입고 등록에는 비워둬도 됩니다)")
+            # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다.
             col3, col4 = st.columns(2)
             with col3:
                 equipment_id = st.text_input("설비 ID (예: LD451 RK003)")
@@ -240,21 +315,20 @@ with tab3:
                 material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
                 material_id = int(material_row["id"])
 
-                # history 테이블에 이번 입출고 기록을 추가합니다.
+                # history 테이블에 이번 출고 기록을 추가합니다.
                 db.insert_history({
-                    "occurred_on": move_date.isoformat(), "direction": direction,
+                    "occurred_on": move_date.isoformat(), "direction": "출고",
                     "material_id": material_id, "quantity": move_qty,
                     "manager": manager, "note": note or None,
                     "equipment_id": equipment_id or None, "problem": problem or None,
                     "action_taken": action_taken or None, "part_memo": part_memo or None,
                 })
 
-                # 입고면 현재재고를 늘리고, 출고면 현재재고를 줄여서 materials 테이블에도 반영합니다.
-                change = move_qty if direction == "입고" else -move_qty
-                new_qty = int(material_row["현재재고"]) + change
+                # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다.
+                new_qty = int(material_row["현재재고"]) - move_qty
                 db.update_material_qty(material_id, new_qty)
 
-                st.success(f"'{selected_part}' {direction} {move_qty}건이 등록되었습니다.")
+                st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
                 st.rerun()
 
 # ---------- 탭 4: 검색/필터 ----------
@@ -305,3 +379,67 @@ with tab5:
                 st.success(f"{st.secrets['naver_mail']['sender_email']}로 알림 메일을 보냈습니다.")
             except Exception as e:
                 st.error(f"메일 발송에 실패했습니다: {e}")
+
+# ---------- 탭 6: 구매 요청 ----------
+with tab6:
+    st.subheader("새 구매 요청")
+    materials_for_request = db.load_materials()
+
+    category_list = ["전체"] + sorted(materials_for_request["카테고리"].dropna().unique().tolist())
+    selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list, key="pr_category")
+    narrowed = materials_for_request if selected_category == "전체" else materials_for_request[materials_for_request["카테고리"] == selected_category]
+
+    # 부품 선택은 form 밖에 둬야, 고를 때마다 바로 아래 재고 현황이 갱신됩니다.
+    selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
+    if selected_part:
+        part_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+        st.caption(f"표준재고: {part_row['표준재고']}   /   현재재고: {part_row['현재재고']}")
+
+    with st.form("purchase_request_form", clear_on_submit=True):
+        requester_name = st.text_input("요청자", value=st.session_state.user_email)
+        requested_qty = st.number_input("요청수량", min_value=1, step=1)
+        request_note = st.text_input("요청사유 (선택)")
+        submitted = st.form_submit_button("요청 등록")
+
+        if submitted:
+            if not requester_name:
+                st.error("요청자를 입력해주세요.")
+            else:
+                material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+                material_id = int(material_row["id"])
+                open_count = db.count_open_requests_for_material(material_id)
+                db.insert_purchase_request(material_id, requested_qty, requester_name, request_note)
+                if open_count > 0:
+                    st.warning(f"⚠️ '{selected_part}'에 이미 진행 중인 구매요청이 {open_count}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.")
+                else:
+                    st.success(f"'{selected_part}' 구매요청이 등록되었습니다.")
+                st.rerun()
+
+    st.divider()
+    st.subheader("구매 요청 목록")
+    requests_df = db.load_purchase_requests()
+
+    status_options = ["전체", "요청됨", "검토중", "승인됨", "구매중", "입고완료", "반려됨"]
+    selected_status = st.selectbox("상태로 좁히기", status_options)
+    filtered = requests_df if selected_status == "전체" else requests_df[requests_df["상태"] == selected_status]
+
+    if filtered.empty:
+        st.info("조건에 맞는 구매 요청이 없습니다.")
+    else:
+        display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
+        st.dataframe(filtered[display_cols], use_container_width=True)
+
+        if st.session_state.role == "관리자":
+            st.markdown("**요청 관리** (진행 중인 요청은 처리, 끝난 요청도 삭제 가능)")
+            for _, r in filtered.iterrows():
+                is_open = r["상태"] not in ("입고완료", "반려됨")
+                c1, c2 = st.columns([5, 1])
+                c1.write(f"#{r['id']}  {r['부품명(규격)']} ({r['요청수량']}개)  —  {r['상태']}")
+                if c2.button("처리" if is_open else "관리", key=f"process_pr_{r['id']}", use_container_width=True):
+                    purchase_request_dialog(int(r["id"]))
+
+    st.divider()
+    st.subheader("📜 입고 이력")
+    st.caption("구매요청을 통해 입고 처리된 기록과, 예전에 등록된 입고 기록을 함께 보여줍니다.")
+    history_df = db.load_history()
+    st.dataframe(history_df[history_df["구분"] == "입고"], use_container_width=True)

@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from datetime import date, datetime, timezone
 from supabase import create_client
 
 # Supabase 테이블의 영문 컬럼명을 화면에 보여줄 한글 이름으로 바꿔주는 매핑표입니다.
@@ -117,7 +118,13 @@ def delete_material(material_id):
 
 
 def insert_history(data):
-    get_authed_client().table("history").insert(data).execute()
+    res = get_authed_client().table("history").insert(data).execute()
+    load_history.clear()
+    return res.data[0]["id"]
+
+
+def delete_history(history_id):
+    get_authed_client().table("history").delete().eq("id", history_id).execute()
     load_history.clear()
 
 
@@ -147,3 +154,125 @@ def load_audit_log():
         if col in df.columns:
             df[col] = df[col].astype(str)
     return df
+
+
+def _now():
+    return datetime.now(timezone.utc).isoformat()
+
+
+# 구매 요청 목록을 자재 부품명 + 표준재고/현재재고와 함께 가져옵니다.
+@st.cache_data(ttl=15)
+def load_purchase_requests():
+    res = get_authed_client().table("purchase_requests").select(
+        "*, materials(part_name, standard_qty, current_qty)"
+    ).order("id", desc=True).execute()
+    rows = [
+        {
+            "id": row["id"],
+            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
+            "material_id": row["material_id"],
+            "표준재고": row["materials"]["standard_qty"] if row.get("materials") else None,
+            "현재재고": row["materials"]["current_qty"] if row.get("materials") else None,
+            "요청수량": row["requested_qty"],
+            "상태": row["status"],
+            "요청자": row["requester_email"],
+            "요청사유": row["request_note"],
+            "반려사유": row["reject_reason"],
+            "거래업체": row["vendor"],
+            "단가": row["unit_price"],
+            "입고수량": row["received_qty"],
+            "요청일시": row["requested_at"],
+        }
+        for row in res.data
+    ]
+    return pd.DataFrame(rows, columns=[
+        "id", "부품명(규격)", "material_id", "표준재고", "현재재고", "요청수량", "상태", "요청자",
+        "요청사유", "반려사유", "거래업체", "단가", "입고수량", "요청일시",
+    ])
+
+
+# 같은 자재에 아직 끝나지 않은(입고완료/반려 아닌) 구매요청이 몇 건 있는지 셉니다.
+# 중복 요청 방지용 경고 문구에 씁니다.
+def count_open_requests_for_material(material_id):
+    res = get_authed_client().table("purchase_requests").select("status").eq("material_id", material_id).execute()
+    return sum(1 for row in res.data if row["status"] not in ("입고완료", "반려됨"))
+
+
+def insert_purchase_request(material_id, requested_qty, requester_email, request_note):
+    get_authed_client().table("purchase_requests").insert({
+        "material_id": material_id,
+        "requested_qty": requested_qty,
+        "requester_email": requester_email,
+        "request_note": request_note or None,
+        "status": "요청됨",
+    }).execute()
+    load_purchase_requests.clear()
+
+
+def start_review(request_id):
+    get_authed_client().table("purchase_requests").update({
+        "status": "검토중", "reviewed_at": _now(),
+    }).eq("id", request_id).execute()
+    load_purchase_requests.clear()
+
+
+def approve_request(request_id, requested_qty):
+    # 검토 중에 실제로 필요한 수량이 다르다고 판단되면, 승인하면서 요청수량 자체를 고쳐 반영합니다.
+    get_authed_client().table("purchase_requests").update({
+        "status": "승인됨", "approved_at": _now(), "requested_qty": requested_qty,
+    }).eq("id", request_id).execute()
+    load_purchase_requests.clear()
+
+
+def reject_request(request_id, reason):
+    get_authed_client().table("purchase_requests").update({
+        "status": "반려됨", "rejected_at": _now(), "reject_reason": reason,
+    }).eq("id", request_id).execute()
+    load_purchase_requests.clear()
+
+
+def mark_purchasing(request_id, vendor, unit_price):
+    get_authed_client().table("purchase_requests").update({
+        "status": "구매중", "purchased_at": _now(), "vendor": vendor, "unit_price": unit_price,
+    }).eq("id", request_id).execute()
+    load_purchase_requests.clear()
+
+
+# 입고 처리: 요청 상태를 '입고완료'로 바꾸고, 실제 재고와 입출고 이력에도 반영합니다.
+def receive_request(request_id, material_id, received_qty, vendor):
+    material = get_material(material_id)
+    new_qty = int(material["current_qty"] or 0) + received_qty
+
+    update_material_qty(material_id, new_qty)
+    history_id = insert_history({
+        "occurred_on": date.today().isoformat(),
+        "direction": "입고",
+        "material_id": material_id,
+        "quantity": received_qty,
+        "manager": vendor,
+        "note": f"구매요청 #{request_id} 입고 처리",
+    })
+
+    get_authed_client().table("purchase_requests").update({
+        "status": "입고완료", "received_at": _now(), "received_qty": received_qty, "history_id": history_id,
+    }).eq("id", request_id).execute()
+    load_purchase_requests.clear()
+
+
+# 구매요청을 삭제합니다. 이미 입고완료 상태였다면, 그때 반영했던 재고 증가분을
+# 되돌리고(원복) 같이 생성됐던 입출고 이력도 함께 지운 뒤 요청을 삭제합니다.
+def delete_purchase_request(request_id):
+    res = get_authed_client().table("purchase_requests").select("*").eq("id", request_id).execute()
+    if not res.data:
+        return
+    row = res.data[0]
+
+    if row["status"] == "입고완료" and row.get("received_qty"):
+        material = get_material(row["material_id"])
+        reverted_qty = int(material["current_qty"] or 0) - int(row["received_qty"])
+        update_material_qty(row["material_id"], reverted_qty)
+        if row.get("history_id"):
+            delete_history(row["history_id"])
+
+    get_authed_client().table("purchase_requests").delete().eq("id", request_id).execute()
+    load_purchase_requests.clear()
