@@ -38,6 +38,9 @@ def get_authed_client():
 
 # materials 테이블 전체를 가져와서 한글 컬럼명이 붙은 표로 만들어줍니다.
 # Supabase는 한 번 요청에 최대 1000건까지만 돌려주므로, 1000건씩 끊어서 끝까지 반복해서 가져옵니다.
+# 화면 하나를 그릴 때 이 함수가 여러 탭에서 반복 호출되는데, cache_data로 감싸두면
+# 15초 안의 반복 호출은 네트워크를 다시 안 타고 캐시된 결과를 재사용해서 훨씬 빨라집니다.
+@st.cache_data(ttl=60)
 def load_materials():
     supabase = get_authed_client()
     page_size = 1000
@@ -55,6 +58,7 @@ def load_materials():
 
 # history 테이블을 가져오면서, 연결된 자재의 부품명도 같이 붙여서 보여줍니다.
 # materials와 마찬가지로 1000건씩 끊어서 끝까지 반복해서 가져옵니다.
+@st.cache_data(ttl=60)
 def load_history():
     supabase = get_authed_client()
     page_size = 1000
@@ -94,6 +98,7 @@ def with_구매필요(df):
 
 def insert_material(data):
     get_authed_client().table("materials").insert(data).execute()
+    load_materials.clear()
 
 
 def get_material(material_id):
@@ -103,18 +108,22 @@ def get_material(material_id):
 
 def update_material(material_id, data):
     get_authed_client().table("materials").update(data).eq("id", material_id).execute()
+    load_materials.clear()
 
 
 def delete_material(material_id):
     get_authed_client().table("materials").delete().eq("id", material_id).execute()
+    load_materials.clear()
 
 
 def insert_history(data):
     get_authed_client().table("history").insert(data).execute()
+    load_history.clear()
 
 
 def update_material_qty(material_id, new_qty):
     get_authed_client().table("materials").update({"current_qty": new_qty}).eq("id", material_id).execute()
+    load_materials.clear()
 
 
 # 관리자가 자재를 수정/삭제할 때마다 남기는 감사 로그입니다.
