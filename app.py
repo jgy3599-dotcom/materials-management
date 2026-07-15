@@ -1,3 +1,4 @@
+import io
 import streamlit as st
 from datetime import date
 from postgrest.exceptions import APIError
@@ -8,6 +9,16 @@ import mail
 # 감사 로그는 관리자보다 더 높은 권한으로, 이 계정에서만 볼 수 있게 제한합니다.
 # (실제 차단은 Supabase의 RLS 정책이 하고, 이건 화면에 아예 안 보이게 하는 용도입니다.)
 SUPER_ADMIN_EMAIL = "gyjeong@hanjin.com"
+
+# 표 하나를 엑셀 파일로 내려받는 버튼입니다. (st.dataframe 기본 다운로드 아이콘은 CSV만 지원해서 따로 만듦)
+def excel_download_button(df, file_name, key):
+    buffer = io.BytesIO()
+    df.to_excel(buffer, index=False, engine="openpyxl")
+    buffer.seek(0)
+    st.download_button(
+        "📥 엑셀로 다운로드", data=buffer, file_name=file_name,
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=key,
+    )
 
 # 웹 브라우저 탭 제목과 화면 전체 너비를 설정합니다.
 st.set_page_config(page_title="자재관리 시스템", layout="wide")
@@ -169,6 +180,7 @@ with tab1:
     # dataframe()은 표(엑셀처럼 행/열이 있는 데이터)를 화면에 보여줍니다. (여기서는 그냥 보기만 합니다)
     st.dataframe(db.with_구매필요(materials), use_container_width=True)
     st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
+    excel_download_button(db.with_구매필요(materials), "자재목록.xlsx", key="dl_materials")
 
     st.divider()
     if st.session_state.role != "관리자":
@@ -271,7 +283,9 @@ with tab2:
 with tab3:
     st.subheader("사용(출고) 이력")
     history_df = db.load_history()
-    st.dataframe(history_df[history_df["구분"] == "출고"], use_container_width=True)
+    outgoing_df = history_df[history_df["구분"] == "출고"]
+    st.dataframe(outgoing_df, use_container_width=True)
+    excel_download_button(outgoing_df, "사용이력.xlsx", key="dl_outgoing")
 
     st.divider()
     st.subheader("출고 등록")
@@ -352,6 +366,7 @@ with tab4:
 
     st.dataframe(filtered, use_container_width=True)
     st.caption(f"검색 결과: {len(filtered)}건")
+    excel_download_button(filtered, "검색결과.xlsx", key="dl_search")
 
 # ---------- 탭 5: 구매 필요 알림 ----------
 with tab5:
@@ -368,6 +383,7 @@ with tab5:
         need_purchase = need_purchase[need_purchase["카테고리"] == selected_category]
 
     st.dataframe(need_purchase, use_container_width=True)
+    excel_download_button(need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
 
     st.divider()
     if st.button("📧 알림 메일 보내기"):
@@ -428,6 +444,7 @@ with tab6:
     else:
         display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
         st.dataframe(filtered[display_cols], use_container_width=True)
+        excel_download_button(filtered[display_cols], "구매요청목록.xlsx", key="dl_purchase_requests")
 
         if st.session_state.role == "관리자":
             st.markdown("**요청 관리** (진행 중인 요청은 처리, 끝난 요청도 삭제 가능)")
@@ -442,4 +459,6 @@ with tab6:
     st.subheader("📜 입고 이력")
     st.caption("구매요청을 통해 입고 처리된 기록과, 예전에 등록된 입고 기록을 함께 보여줍니다.")
     history_df = db.load_history()
-    st.dataframe(history_df[history_df["구분"] == "입고"], use_container_width=True)
+    incoming_df = history_df[history_df["구분"] == "입고"]
+    st.dataframe(incoming_df, use_container_width=True)
+    excel_download_button(incoming_df, "입고이력.xlsx", key="dl_incoming")

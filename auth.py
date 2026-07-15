@@ -25,9 +25,13 @@ def check_login():
         st.error(f"로그인을 너무 많이 실패했습니다. {remaining}초 후 다시 시도해주세요.")
         st.stop()
 
-    email = st.text_input("이메일")
-    password = st.text_input("비밀번호", type="password")
-    if st.button("로그인"):
+    # form으로 감싸두면, 입력칸에서 Enter 키를 눌러도 제출 버튼을 누른 것처럼 동작합니다.
+    with st.form("login_form"):
+        email = st.text_input("이메일")
+        password = st.text_input("비밀번호", type="password")
+        submitted = st.form_submit_button("로그인")
+
+    if submitted:
         try:
             res = get_client().auth.sign_in_with_password({"email": email, "password": password})
             st.session_state.access_token = res.session.access_token
