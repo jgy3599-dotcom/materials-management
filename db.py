@@ -140,4 +140,10 @@ def insert_audit_log(actor_email, action, material_id, part_name, before_data, a
 
 def load_audit_log():
     res = get_authed_client().table("audit_log").select("*").order("id", desc=True).limit(200).execute()
-    return pd.DataFrame(res.data)
+    df = pd.DataFrame(res.data)
+    # before_data/after_data는 자재 한 행 전체를 담은 중첩된 JSON이라, 표로 그릴 때
+    # 화면 렌더링 라이브러리가 다루기 어려워할 수 있어 문자열로 바꿔서 안전하게 보여줍니다.
+    for col in ("before_data", "after_data"):
+        if col in df.columns:
+            df[col] = df[col].astype(str)
+    return df
