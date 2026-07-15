@@ -1,6 +1,4 @@
 import streamlit as st
-import pandas as pd
-import altair as alt
 from datetime import date
 from postgrest.exceptions import APIError
 import db
@@ -10,19 +8,6 @@ import mail
 # 감사 로그는 관리자보다 더 높은 권한으로, 이 계정에서만 볼 수 있게 제한합니다.
 # (실제 차단은 Supabase의 RLS 정책이 하고, 이건 화면에 아예 안 보이게 하는 용도입니다.)
 SUPER_ADMIN_EMAIL = "gyjeong@hanjin.com"
-
-# 차트에서 카테고리마다 항상 같은 색을 쓰도록 고정해둔 표입니다.
-# (필터링을 해도 색이 바뀌면 헷갈리기 때문에, 카테고리:색을 1:1로 고정합니다.)
-CATEGORY_COLORS = {
-    "롤러/풀리/스프라켓": "#2a78d6",
-    "벨트류": "#1baf7a",
-    "베어링/바퀴": "#eda100",
-    "모터": "#008300",
-    "전기": "#4a3aa7",
-    "스위치": "#e34948",
-    "외산(TAMS)": "#e87ba4",
-    "외산": "#eb6834",
-}
 
 # 웹 브라우저 탭 제목과 화면 전체 너비를 설정합니다.
 st.set_page_config(page_title="자재관리 시스템", layout="wide")
@@ -99,8 +84,8 @@ if _need_purchase_count > 0:
     st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
 # tabs()는 화면 안에 탭(클릭해서 전환하는 페이지)을 여러 개 만들어줍니다.
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(
-    ["📋 자재 목록", "➕ 자재 등록", "🔄 입출고 이력", "🔍 검색/필터", "⚠️ 구매 필요 알림", "📊 통계 대시보드"]
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    ["📋 자재 목록", "➕ 자재 등록", "🔄 입출고 이력", "🔍 검색/필터", "⚠️ 구매 필요 알림"]
 )
 
 # ---------- 탭 1: 자재 목록 ----------
@@ -320,85 +305,3 @@ with tab5:
                 st.success(f"{st.secrets['naver_mail']['sender_email']}로 알림 메일을 보냈습니다.")
             except Exception as e:
                 st.error(f"메일 발송에 실패했습니다: {e}")
-
-# ---------- 탭 6: 통계 대시보드 ----------
-with tab6:
-    st.subheader("통계 대시보드")
-    materials = _materials_for_alert
-    history_df = db.load_history()
-
-    # 요약 숫자 4개를 카드로 보여줍니다.
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("전체 자재 종류", f"{len(materials)}건")
-    col2.metric("카테고리 수", f"{materials['카테고리'].nunique()}개")
-    col3.metric("구매 필요 자재", f"{int((materials['구매필요'] > 0).sum())}건")
-    col4.metric("전체 입출고 이력", f"{len(history_df)}건")
-
-    st.divider()
-
-    col_left, col_right = st.columns(2)
-
-    with col_left:
-        st.markdown("**카테고리별 자재 건수**")
-        cat_counts = materials["카테고리"].value_counts().reset_index()
-        cat_counts.columns = ["카테고리", "건수"]
-        chart1 = alt.Chart(cat_counts).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-            x=alt.X("카테고리:N", sort="-y", title=None),
-            y=alt.Y("건수:Q", title="건수"),
-            color=alt.Color(
-                "카테고리:N",
-                scale=alt.Scale(domain=list(CATEGORY_COLORS.keys()), range=list(CATEGORY_COLORS.values())),
-                legend=None,
-            ),
-            tooltip=["카테고리", "건수"],
-        ).properties(height=320)
-        st.altair_chart(chart1, use_container_width=True)
-
-    with col_right:
-        st.markdown("**카테고리별 구매 필요 건수**")
-        need_by_cat = materials[materials["구매필요"] > 0]["카테고리"].value_counts().reset_index()
-        need_by_cat.columns = ["카테고리", "건수"]
-        if need_by_cat.empty:
-            st.info("현재 구매가 필요한 자재가 없습니다.")
-        else:
-            chart2 = alt.Chart(need_by_cat).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-                x=alt.X("카테고리:N", sort="-y", title=None),
-                y=alt.Y("건수:Q", title="건수"),
-                color=alt.Color(
-                    "카테고리:N",
-                    scale=alt.Scale(domain=list(CATEGORY_COLORS.keys()), range=list(CATEGORY_COLORS.values())),
-                    legend=None,
-                ),
-                tooltip=["카테고리", "건수"],
-            ).properties(height=320)
-            st.altair_chart(chart2, use_container_width=True)
-
-    st.divider()
-    st.markdown("**월별 입출고 추이**")
-    if history_df.empty:
-        st.info("입출고 이력이 없습니다.")
-    else:
-        trend = history_df.copy()
-        trend["일자"] = pd.to_datetime(trend["일자"])
-        # 원본 엑셀의 날짜 오타(2001년 등 실제 운영 시작 이전 날짜)는 그래프를 왜곡시키므로 제외합니다.
-        # 자재관리가 시작된 2023-12 이전 데이터는 데이터 오류로 보고 그래프에서만 뺍니다.
-        before_count = (trend["일자"] < "2023-01-01").sum()
-        trend = trend[trend["일자"] >= "2023-01-01"]
-        if before_count > 0:
-            st.caption(f"※ 날짜 오류로 보이는 {before_count}건(2023년 이전)은 그래프에서 제외했습니다.")
-
-        trend["연월"] = trend["일자"].dt.to_period("M").astype(str)
-        monthly = trend.groupby(["연월", "구분"])["수량"].sum().reset_index()
-
-        direction_colors = {"입고": "#2a78d6", "출고": "#e34948"}
-        chart3 = alt.Chart(monthly).mark_line(point=True, strokeWidth=2).encode(
-            x=alt.X("연월:N", title=None),
-            y=alt.Y("수량:Q", title="수량"),
-            color=alt.Color(
-                "구분:N",
-                scale=alt.Scale(domain=list(direction_colors.keys()), range=list(direction_colors.values())),
-                legend=alt.Legend(title=None),
-            ),
-            tooltip=["연월", "구분", "수량"],
-        ).properties(height=320)
-        st.altair_chart(chart3, use_container_width=True)
