@@ -6,6 +6,7 @@ from supabase import create_client
 MATERIAL_COLUMNS = {
     "id": "id",
     "category": "카테고리",
+    "sub_type": "구분",
     "part_name": "부품명(규격)",
     "install_location": "설치위치",
     "manufacturer": "제조사",

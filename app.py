@@ -40,6 +40,7 @@ def edit_material_dialog(material_id):
         col1, col2 = st.columns(2)
         with col1:
             category = st.text_input("카테고리", value=row["category"] or "")
+            sub_type = st.text_input("구분", value=row["sub_type"] or "")
             part = st.text_input("부품명(규격)", value=row["part_name"] or "")
             location = st.text_input("설치위치", value=row["install_location"] or "")
             manufacturer = st.text_input("제조사", value=row["manufacturer"] or "")
@@ -63,7 +64,7 @@ def edit_material_dialog(material_id):
                 st.error("부품명(규격)은 반드시 입력해야 합니다.")
             else:
                 after_data = {
-                    "category": category, "part_name": part, "install_location": location,
+                    "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
                 }
@@ -176,6 +177,7 @@ with tab2:
         with col1:
             category_choice = st.selectbox("카테고리", category_options)
             new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
+            sub_type = st.text_input("구분 (선택 입력, 예: 베어링/키/풀리)")
             part = st.text_input("부품명(규격)")
             location = st.text_input("설치위치")
             manufacturer = st.text_input("제조사", value="-")
@@ -197,7 +199,7 @@ with tab2:
                 st.error("새 카테고리명을 입력해주세요.")
             else:
                 db.insert_material({
-                    "category": category, "part_name": part, "install_location": location,
+                    "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
                 })

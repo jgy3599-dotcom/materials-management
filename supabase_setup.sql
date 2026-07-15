@@ -9,7 +9,8 @@ create table materials (
     in_use_qty integer default 0,
     standard_qty integer default 0,
     current_qty integer default 0,
-    note text
+    note text,
+    sub_type text  -- 구분 (예: 롤러/풀리/스프라켓의 "베어링", "키", "풀리" 등 세부 분류)
 );
 
 -- 입출고 이력 테이블 (어떤 자재인지는 material_id로 연결)
@@ -63,6 +64,7 @@ begin
             or NEW.in_use_qty is distinct from OLD.in_use_qty
             or NEW.standard_qty is distinct from OLD.standard_qty
             or NEW.note is distinct from OLD.note
+            or NEW.sub_type is distinct from OLD.sub_type
         then
             raise exception '일반 권한은 현재재고만 수정할 수 있습니다.';
         end if;
