@@ -98,3 +98,36 @@ create policy "superadmin select audit_log" on audit_log
     for select using ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
 create policy "admin insert audit_log" on audit_log
     for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+-- 설비(컨베이어) 설계 사양(BOQ) 테이블입니다. conveyor_id로 검색해서
+-- 설비 스펙 + history.equipment_id로 이어지는 사용 이력을 함께 보여주는 용도입니다.
+create table boq (
+    id bigint generated always as identity primary key,
+    conveyor_id text not null unique,
+    category_large text,   -- 대분류
+    category_mid text,     -- 중분류
+    location_1 text,
+    location_2 text,
+    equipment_type text,   -- 설비구분
+    conveyor_type text,
+    length_mm numeric,
+    width_mm numeric,
+    angle numeric,
+    belt_type text,
+    belt_length text,      -- V벨트 규격 (예: 780Wx13,420)
+    motor_model text,
+    motor_type text,
+    motor_power numeric,
+    reducer_ratio text,
+    timing_chain text,     -- 타이밍벨트 & 체인
+    remarks text
+);
+
+alter table boq enable row level security;
+
+create policy "authenticated select boq" on boq
+    for select using (auth.role() = 'authenticated');
+create policy "admin insert boq" on boq
+    for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin update boq" on boq
+    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
