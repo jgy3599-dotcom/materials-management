@@ -96,12 +96,12 @@ create table audit_log (
 
 alter table audit_log enable row level security;
 
--- 감사 로그는 관리자가 수정/삭제할 때마다 기록은 남지만(insert), 조회(select)는 지정된
--- 한 사람만 볼 수 있도록 관리자보다 더 높은 권한으로 제한합니다.
+-- 감사 로그는 로그인한 사람이면 누구나(자재 등록은 일반 계정도 가능하므로) 기록을 남길 수 있지만,
+-- 조회(select)는 지정된 한 사람만 볼 수 있도록 관리자보다 더 높은 권한으로 제한합니다.
 create policy "superadmin select audit_log" on audit_log
     for select using ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
-create policy "admin insert audit_log" on audit_log
-    for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "authenticated insert audit_log" on audit_log
+    for insert with check (auth.role() = 'authenticated');
 
 -- 설비(컨베이어) 설계 사양(BOQ) 테이블입니다. conveyor_id로 검색해서
 -- 설비 스펙 + history.equipment_id로 이어지는 사용 이력을 함께 보여주는 용도입니다.

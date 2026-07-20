@@ -166,8 +166,9 @@ def with_구매필요(df):
 
 
 def insert_material(data):
-    get_authed_client().table("materials").insert(data).execute()
+    res = get_authed_client().table("materials").insert(data).execute()
     load_materials.clear()
+    return res.data[0]["id"]
 
 
 def get_material(material_id):

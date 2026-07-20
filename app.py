@@ -327,12 +327,14 @@ with tab2:
             elif category_choice == NEW_CATEGORY_OPTION and not new_category:
                 st.error("새 카테고리명을 입력해주세요.")
             else:
-                db.insert_material({
+                new_data = {
                     "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
                     "warehouse_no": warehouse_no or None, "order_code": order_code or None,
-                })
+                }
+                new_material_id = db.insert_material(new_data)
+                db.insert_audit_log(st.session_state.user_email, "insert", new_material_id, part, None, new_data)
                 st.success(f"'{part}' 자재가 등록되었습니다.")
                 st.rerun()
 
