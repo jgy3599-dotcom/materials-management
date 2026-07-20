@@ -10,7 +10,8 @@ create table materials (
     standard_qty integer default 0,
     current_qty integer default 0,
     note text,
-    sub_type text  -- 구분 (예: 롤러/풀리/스프라켓의 "베어링", "키", "풀리" 등 세부 분류)
+    sub_type text,  -- 구분 (예: 롤러/풀리/스프라켓의 "베어링", "키", "풀리" 등 세부 분류)
+    warehouse_no text  -- 창고 번호 (모터/전기/외산(TAMS) 카테고리에서 사용, "44-1"처럼 숫자가 아닌 값도 있어 text)
 );
 
 -- 입출고 이력 테이블 (어떤 자재인지는 material_id로 연결)
@@ -65,6 +66,7 @@ begin
             or NEW.standard_qty is distinct from OLD.standard_qty
             or NEW.note is distinct from OLD.note
             or NEW.sub_type is distinct from OLD.sub_type
+            or NEW.warehouse_no is distinct from OLD.warehouse_no
         then
             raise exception '일반 권한은 현재재고만 수정할 수 있습니다.';
         end if;
@@ -134,7 +136,7 @@ create policy "admin update boq" on boq
 
 -- 구매 요청 워크플로우 테이블입니다.
 -- 상태 흐름: 요청됨 -> 검토중 -> 승인됨 -> 구매중 -> 입고완료 (검토중/승인됨 단계에서 반려됨으로 갈 수 있음)
--- 입고완료로 바뀌는 시점에 앱에서 materials.current_qty를 올리고 history에도 입고 기록을 남깁니다.
+-- 입고완료로 바뀌는 시점에 앱에서 materials.current_qty를 올리고 purchase_history에도 구매 확정 기록을 남깁니다.
 create table purchase_requests (
     id bigint generated always as identity primary key,
     material_id bigint not null references materials (id),
@@ -151,8 +153,7 @@ create table purchase_requests (
     approved_at timestamptz,
     rejected_at timestamptz,
     purchased_at timestamptz,
-    received_at timestamptz,
-    history_id bigint references history (id)  -- 입고 처리 시 생성된 입출고 이력 행. 삭제(원복) 시 이걸 같이 지웁니다.
+    received_at timestamptz
 );
 
 alter table purchase_requests enable row level security;
@@ -167,7 +168,24 @@ create policy "admin update purchase_requests" on purchase_requests
 create policy "admin delete purchase_requests" on purchase_requests
     for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 
--- 잘못 입고 처리된 구매요청을 삭제(원복)할 때, 그때 같이 생성된 입출고 이력도
--- 함께 지울 수 있도록 관리자에게 history 삭제 권한을 엽니다.
-create policy "admin delete history" on history
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+-- 구매 확정 이력 테이블입니다. 구매요청이 입고완료로 처리되는 순간 한 줄 기록되고,
+-- 이후 그 구매요청이 purchase_requests에서 삭제되더라도 이 기록은 지워지지 않고 남습니다.
+create table purchase_history (
+    id bigint generated always as identity primary key,
+    material_id bigint references materials (id),
+    quantity integer not null,
+    vendor text,
+    unit_price numeric,
+    received_on date not null,
+    request_id bigint references purchase_requests (id) on delete set null,  -- 참고용. 원본 요청이 지워져도 이 이력은 유지됩니다.
+    reverted_at timestamptz  -- 원본 구매요청이 나중에 삭제(원복)되면 채워집니다. 기록 자체는 지우지 않고 취소 표시만 남깁니다.
+);
+
+alter table purchase_history enable row level security;
+
+create policy "authenticated select purchase_history" on purchase_history
+    for select using (auth.role() = 'authenticated');
+create policy "admin insert purchase_history" on purchase_history
+    for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin update purchase_history" on purchase_history
+    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
