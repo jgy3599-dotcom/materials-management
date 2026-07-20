@@ -421,13 +421,16 @@ with tab5:
     excel_download_button(need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
 
     st.divider()
+    recipient_email = st.text_input("받는 사람 이메일", value=st.secrets["naver_mail"]["sender_email"])
     if st.button("📧 알림 메일 보내기"):
         if need_purchase.empty:
             st.info("현재 구매가 필요한 자재가 없어 보낼 내용이 없습니다.")
+        elif not recipient_email:
+            st.error("받는 사람 이메일을 입력해주세요.")
         else:
             try:
-                mail.send_purchase_alert_email(need_purchase)
-                st.success(f"{st.secrets['naver_mail']['sender_email']}로 알림 메일을 보냈습니다.")
+                mail.send_purchase_alert_email(need_purchase, recipient_email)
+                st.success(f"{recipient_email}로 알림 메일을 보냈습니다.")
             except Exception as e:
                 st.error(f"메일 발송에 실패했습니다: {e}")
 

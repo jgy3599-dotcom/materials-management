@@ -7,8 +7,8 @@ import streamlit as st
 
 
 # 구매가 필요한 자재 목록을 엑셀 파일로 첨부해서 네이버 메일로 보내는 함수입니다.
-# secrets.toml의 [naver_mail]에 적어둔 계정으로 로그인해서, 같은 계정 앞으로 메일을 보냅니다.
-def send_purchase_alert_email(need_purchase_df):
+# secrets.toml의 [naver_mail]에 적어둔 계정으로 로그인(발송)하고, recipient로 지정한 주소로 보냅니다.
+def send_purchase_alert_email(need_purchase_df, recipient):
     sender = st.secrets["naver_mail"]["sender_email"]
     password = st.secrets["naver_mail"]["app_password"]
 
@@ -20,7 +20,7 @@ def send_purchase_alert_email(need_purchase_df):
     msg = MIMEMultipart()
     msg["Subject"] = f"[자재관리] 구매 필요 알림 ({len(need_purchase_df)}건)"
     msg["From"] = sender
-    msg["To"] = sender
+    msg["To"] = recipient
     msg.attach(MIMEText(f"구매가 필요한 자재 {len(need_purchase_df)}건을 첨부 엑셀 파일로 보내드립니다."))
 
     attachment = MIMEApplication(excel_buffer.read(), _subtype="xlsx")
@@ -31,4 +31,4 @@ def send_purchase_alert_email(need_purchase_df):
     # 465번 포트 + SSL은 네이버 메일이 요구하는 SMTP 접속 방식입니다.
     with smtplib.SMTP_SSL("smtp.naver.com", 465) as server:
         server.login(sender, password)
-        server.sendmail(sender, [sender], msg.as_string())
+        server.sendmail(sender, [recipient], msg.as_string())
