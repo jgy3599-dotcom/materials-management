@@ -2,7 +2,7 @@ import io
 import streamlit as st
 from datetime import date
 from postgrest.exceptions import APIError
-from st_aggrid import AgGrid, GridOptionsBuilder
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import db
 import auth
 import mail
@@ -58,6 +58,13 @@ def _to_excel_bytes(df):
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine="openpyxl")
     return buffer.getvalue()
+
+
+# 사용(출고) 이력에서 설비ID 행을 골라 "BOQ 검색으로 이동" 버튼을 누르면 실행되는 콜백입니다.
+# 탭 전환(active_tab)은 위젯이 이미 그려진 뒤에는 코드로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
+def jump_to_boq(equipment_id):
+    st.session_state["boq_search"] = equipment_id
+    st.session_state["active_tab"] = "🔎 BOQ 검색"
 
 
 # 표 하나를 엑셀 파일로 내려받는 버튼입니다. (st.dataframe 기본 다운로드 아이콘은 CSV만 지원해서 따로 만듦)
@@ -225,8 +232,11 @@ if _need_purchase_count > 0:
     st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
 # tabs()는 화면 안에 탭(클릭해서 전환하는 페이지)을 여러 개 만들어줍니다.
+# key + on_change="rerun"을 주면, 코드에서 st.session_state["active_tab"]에 탭 이름을 넣는 것만으로
+# 다른 탭으로 화면을 전환시킬 수 있습니다 (사용이력 → BOQ 검색 자동 이동에 씀).
 tab1, tab2, tab3, tab5, tab6, tab7 = st.tabs(
-    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
+    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"],
+    key="active_tab", on_change="rerun",
 )
 
 # ---------- 탭 1: 자재 목록 ----------
@@ -344,7 +354,30 @@ with tab2:
 with tab3:
     st.subheader("사용(출고) 이력")
     outgoing_df = history_df[history_df["구분"] == "출고"]
-    filterable_table(outgoing_df, key="outgoing_grid")
+    st.caption("행을 클릭해서 선택한 뒤, 아래 버튼을 누르면 그 설비ID로 'BOQ 검색' 탭으로 이동합니다.")
+
+    grid_builder = GridOptionsBuilder.from_dataframe(outgoing_df)
+    grid_builder.configure_default_column(filter=True, sortable=True, resizable=True, floatingFilter=True)
+    grid_builder.configure_selection(selection_mode="single", use_checkbox=False)
+    grid_options = grid_builder.build()
+    grid_options["localeText"] = AGGRID_KOREAN_LOCALE
+    grid_response = AgGrid(
+        outgoing_df, gridOptions=grid_options, height=500, key="outgoing_grid",
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        custom_css={".ag-cell": {"user-select": "text"}},
+    )
+
+    selected_rows = grid_response.get("selected_rows")
+    if selected_rows is not None and len(selected_rows) > 0:
+        selected_row = selected_rows.iloc[0] if hasattr(selected_rows, "iloc") else selected_rows[0]
+        clicked_equipment_id = selected_row.get("설비ID") if hasattr(selected_row, "get") else None
+        if clicked_equipment_id:
+            # 탭 전환은 st.tabs가 이미 그려진 뒤라 여기서 바로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
+            st.button(
+                f"🔎 '{clicked_equipment_id}' BOQ 검색으로 이동", key="jump_to_boq_btn",
+                on_click=jump_to_boq, args=(clicked_equipment_id,),
+            )
+
     excel_download_button(outgoing_df, "사용이력.xlsx", key="dl_outgoing")
 
     st.divider()
