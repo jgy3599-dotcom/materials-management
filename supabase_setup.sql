@@ -11,7 +11,8 @@ create table materials (
     current_qty integer default 0,
     note text,
     sub_type text,  -- 구분 (예: 롤러/풀리/스프라켓의 "베어링", "키", "풀리" 등 세부 분류)
-    warehouse_no text  -- 창고 번호 (모터/전기/외산(TAMS) 카테고리에서 사용, "44-1"처럼 숫자가 아닌 값도 있어 text)
+    warehouse_no text,  -- 창고 번호 (모터/전기/외산(TAMS) 카테고리에서 사용, "44-1"처럼 숫자가 아닌 값도 있어 text)
+    order_code text  -- 발주 코드 (외산(TAMS) 카테고리에서 사용)
 );
 
 -- 입출고 이력 테이블 (어떤 자재인지는 material_id로 연결)
@@ -67,6 +68,7 @@ begin
             or NEW.note is distinct from OLD.note
             or NEW.sub_type is distinct from OLD.sub_type
             or NEW.warehouse_no is distinct from OLD.warehouse_no
+            or NEW.order_code is distinct from OLD.order_code
         then
             raise exception '일반 권한은 현재재고만 수정할 수 있습니다.';
         end if;

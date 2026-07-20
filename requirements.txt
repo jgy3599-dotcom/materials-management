@@ -5,3 +5,4 @@ pyarrow==18.1.0
 supabase==2.31.0
 postgrest==2.31.0
 openpyxl==3.1.5
+streamlit-aggrid==1.2.1.post2

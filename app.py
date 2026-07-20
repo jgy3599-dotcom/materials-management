@@ -2,6 +2,7 @@ import io
 import streamlit as st
 from datetime import date
 from postgrest.exceptions import APIError
+from st_aggrid import AgGrid, GridOptionsBuilder
 import db
 import auth
 import mail
@@ -9,6 +10,46 @@ import mail
 # 감사 로그는 관리자보다 더 높은 권한으로, 이 계정에서만 볼 수 있게 제한합니다.
 # (실제 차단은 Supabase의 RLS 정책이 하고, 이건 화면에 아예 안 보이게 하는 용도입니다.)
 SUPER_ADMIN_EMAIL = "gyjeong@hanjin.com"
+
+# AgGrid 표(필터 가능한 표)에서 쓰는 문구를 한글로 바꿔주는 사전입니다.
+AGGRID_KOREAN_LOCALE = {
+    "contains": "포함",
+    "notContains": "포함 안 함",
+    "equals": "같음",
+    "notEqual": "같지 않음",
+    "startsWith": "시작 문자",
+    "endsWith": "끝 문자",
+    "blank": "비어있음",
+    "notBlank": "비어있지 않음",
+    "filterOoo": "검색...",
+    "applyFilter": "적용",
+    "resetFilter": "초기화",
+    "clearFilter": "지우기",
+    "cancelFilter": "취소",
+    "andCondition": "그리고",
+    "orCondition": "또는",
+    "loadingOoo": "불러오는 중...",
+    "noRowsToShow": "표시할 데이터가 없습니다",
+    "pinColumn": "컬럼 고정",
+    "autosizeThiscolumn": "이 컬럼 자동맞춤",
+    "autosizeAllColumns": "전체 컬럼 자동맞춤",
+    "sortAscending": "오름차순 정렬",
+    "sortDescending": "내림차순 정렬",
+    "sortUnSort": "정렬 해제",
+}
+
+
+# 컬럼 제목 아래에 필터 검색창이 항상 보이는(엑셀 필터 줄과 비슷한) 표를 그려줍니다.
+def filterable_table(df, key, height=500):
+    grid_builder = GridOptionsBuilder.from_dataframe(df)
+    grid_builder.configure_default_column(filter=True, sortable=True, resizable=True, floatingFilter=True)
+    grid_options = grid_builder.build()
+    grid_options["localeText"] = AGGRID_KOREAN_LOCALE
+    AgGrid(
+        df, gridOptions=grid_options, height=height, key=key,
+        # 기본 상태에선 셀 안 글자를 마우스로 드래그해서 선택/복사할 수 없어서, CSS로 풀어줍니다.
+        custom_css={".ag-cell": {"user-select": "text"}},
+    )
 
 # 표를 엑셀 바이트로 변환합니다. 같은 내용의 표면 다시 변환하지 않고 캐시된 결과를 재사용합니다.
 # (버튼을 안 눌러도 화면이 다시 그려질 때마다 이 변환이 실행되므로, 캐시가 없으면 매번 낭비됩니다.)
@@ -44,6 +85,7 @@ def edit_material_dialog(material_id):
             category = st.text_input("카테고리", value=row["category"] or "")
             sub_type = st.text_input("구분", value=row["sub_type"] or "")
             part = st.text_input("부품명(규격)", value=row["part_name"] or "")
+            order_code = st.text_input("발주코드", value=row["order_code"] or "")
             location = st.text_input("설치위치", value=row["install_location"] or "")
             manufacturer = st.text_input("제조사", value=row["manufacturer"] or "")
         with col2:
@@ -70,7 +112,7 @@ def edit_material_dialog(material_id):
                     "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
-                    "warehouse_no": warehouse_no or None,
+                    "warehouse_no": warehouse_no or None, "order_code": order_code or None,
                 }
                 db.update_material(material_id, after_data)
                 db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, after_data)
@@ -183,16 +225,16 @@ if _need_purchase_count > 0:
     st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
 # tabs()는 화면 안에 탭(클릭해서 전환하는 페이지)을 여러 개 만들어줍니다.
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
-    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "🔍 검색/필터", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
+tab1, tab2, tab3, tab5, tab6, tab7 = st.tabs(
+    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
 )
 
 # ---------- 탭 1: 자재 목록 ----------
 with tab1:
     st.subheader("전체 자재 목록")
     materials = materials_df
-    # dataframe()은 표(엑셀처럼 행/열이 있는 데이터)를 화면에 보여줍니다. (여기서는 그냥 보기만 합니다)
-    st.dataframe(_materials_for_alert, use_container_width=True)
+    # AgGrid는 엑셀처럼 컬럼 제목 아래에 필터 검색창이 붙는 표 컴포넌트입니다. (테스트 적용 - 자재 목록에만 우선 사용)
+    filterable_table(_materials_for_alert, key="materials_grid")
     st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
     excel_download_button(_materials_for_alert, "자재목록.xlsx", key="dl_materials")
 
@@ -245,7 +287,7 @@ with tab1:
 
         if st.session_state.user_email == SUPER_ADMIN_EMAIL:
             with st.expander("🗒️ 감사 로그 (최근 수정/삭제 이력)"):
-                st.dataframe(db.load_audit_log(), use_container_width=True)
+                filterable_table(db.load_audit_log(), key="audit_log_grid")
 
 # ---------- 탭 2: 자재 등록 ----------
 with tab2:
@@ -264,6 +306,7 @@ with tab2:
             new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
             sub_type = st.text_input("구분 (선택 입력, 예: 베어링/키/풀리)")
             part = st.text_input("부품명(규격)")
+            order_code = st.text_input("발주코드 (선택 입력, 외산(TAMS)에서 사용)")
             location = st.text_input("설치위치")
             manufacturer = st.text_input("제조사", value="-")
         with col2:
@@ -288,7 +331,7 @@ with tab2:
                     "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
-                    "warehouse_no": warehouse_no or None,
+                    "warehouse_no": warehouse_no or None, "order_code": order_code or None,
                 })
                 st.success(f"'{part}' 자재가 등록되었습니다.")
                 st.rerun()
@@ -299,7 +342,7 @@ with tab2:
 with tab3:
     st.subheader("사용(출고) 이력")
     outgoing_df = history_df[history_df["구분"] == "출고"]
-    st.dataframe(outgoing_df, use_container_width=True)
+    filterable_table(outgoing_df, key="outgoing_grid")
     excel_download_button(outgoing_df, "사용이력.xlsx", key="dl_outgoing")
 
     st.divider()
@@ -360,29 +403,6 @@ with tab3:
                 st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
                 st.rerun()
 
-# ---------- 탭 4: 검색/필터 ----------
-with tab4:
-    st.subheader("검색 / 필터")
-    materials = materials_df
-    col1, col2 = st.columns(2)
-    with col1:
-        keyword = st.text_input("부품명(규격)으로 검색")
-    with col2:
-        # 현재 데이터에 있는 카테고리 값들을 중복 없이 뽑아서 선택지로 만듭니다.
-        category_list = ["전체"] + sorted(materials["카테고리"].dropna().unique().tolist())
-        selected_category = st.selectbox("카테고리로 필터", category_list)
-
-    # 원본 데이터를 건드리지 않도록 복사본을 만들어서 조건에 맞게 걸러냅니다.
-    filtered = db.with_구매필요(materials)
-    if keyword:
-        filtered = filtered[filtered["부품명(규격)"].str.contains(keyword, case=False, na=False)]
-    if selected_category != "전체":
-        filtered = filtered[filtered["카테고리"] == selected_category]
-
-    st.dataframe(filtered, use_container_width=True)
-    st.caption(f"검색 결과: {len(filtered)}건")
-    excel_download_button(filtered, "검색결과.xlsx", key="dl_search")
-
 # ---------- 탭 5: 구매 필요 알림 ----------
 with tab5:
     st.subheader("구매가 필요한 자재")
@@ -397,7 +417,7 @@ with tab5:
     if selected_category != "전체":
         need_purchase = need_purchase[need_purchase["카테고리"] == selected_category]
 
-    st.dataframe(need_purchase, use_container_width=True)
+    filterable_table(need_purchase, key="need_purchase_grid")
     excel_download_button(need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
 
     st.divider()
@@ -458,7 +478,7 @@ with tab6:
         st.info("조건에 맞는 구매 요청이 없습니다.")
     else:
         display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
-        st.dataframe(filtered[display_cols], use_container_width=True)
+        filterable_table(filtered[display_cols], key="purchase_requests_grid")
         excel_download_button(filtered[display_cols], "구매요청목록.xlsx", key="dl_purchase_requests")
 
         if st.session_state.role == "관리자":
@@ -474,7 +494,7 @@ with tab6:
     st.subheader("📜 구매 이력")
     st.caption("구매요청을 거쳐 입고완료된 구매가 쌓이는 기록입니다. 위 '구매 요청 목록'에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.")
     purchase_history_df = db.load_purchase_history()
-    st.dataframe(purchase_history_df, use_container_width=True)
+    filterable_table(purchase_history_df, key="purchase_history_grid")
     excel_download_button(purchase_history_df, "구매이력.xlsx", key="dl_purchase_history")
 
     st.divider()
@@ -482,7 +502,7 @@ with tab6:
     st.caption("구매요청 워크플로우 도입 이전에 등록된 입고 기록입니다. 워크플로우로 처리한 최신 구매 건은 위 '구매 이력'에서 확인하세요.")
     incoming_df = history_df[history_df["구분"] == "입고"]
     incoming_df = incoming_df[~incoming_df["비고"].str.startswith("구매요청 #", na=False)]
-    st.dataframe(incoming_df, use_container_width=True)
+    filterable_table(incoming_df, key="incoming_grid")
     excel_download_button(incoming_df, "입고이력.xlsx", key="dl_incoming")
 
 # ---------- 탭 7: BOQ 검색 ----------
@@ -496,7 +516,7 @@ with tab7:
             st.warning("해당 컨베이어 ID의 BOQ 정보를 찾을 수 없습니다.")
         else:
             st.markdown("**설계 스펙**")
-            st.dataframe(boq_df, use_container_width=True)
+            filterable_table(boq_df, key="boq_spec_grid", height=120)
 
             st.divider()
             st.markdown("**교체(사용) 이력**")
@@ -504,5 +524,5 @@ with tab7:
             if equipment_history.empty:
                 st.info("이 설비의 교체 이력이 없습니다.")
             else:
-                st.dataframe(equipment_history, use_container_width=True)
+                filterable_table(equipment_history, key="boq_history_grid")
                 excel_download_button(equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
