@@ -432,8 +432,7 @@ with tab3:
                 })
 
                 # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다.
-                new_qty = int(material_row["현재재고"]) - move_qty
-                db.update_material_qty(material_id, new_qty)
+                db.adjust_material_qty(material_id, -move_qty)
 
                 st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
                 st.rerun()

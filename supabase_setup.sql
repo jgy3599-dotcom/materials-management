@@ -81,6 +81,21 @@ create trigger materials_restrict_update
     before update on materials
     for each row execute function restrict_material_update();
 
+-- 현재재고를 "새 값으로 덮어쓰기"가 아니라 "현재 DB 값에 더하기/빼기"로 한 번에 처리하는 함수입니다.
+-- 앱에서 값을 미리 읽어와 계산한 뒤 다시 써넣으면, 그 사이(읽기~쓰기)에 다른 사람이 먼저 바꿔버려서
+-- 덮어써지는 경우가 생길 수 있는데(동시 편집 문제), DB가 직접 더하게 하면 이 문제가 안 생깁니다.
+-- security definer를 안 붙여서, 호출한 사람 권한 그대로 RLS/트리거 검사를 정상적으로 거칩니다.
+create or replace function adjust_material_qty(p_material_id bigint, p_delta integer)
+returns void
+language plpgsql
+as $$
+begin
+    update materials set current_qty = current_qty + p_delta where id = p_material_id;
+end;
+$$;
+
+grant execute on function adjust_material_qty(bigint, integer) to authenticated;
+
 -- 관리자가 자재를 수정/삭제할 때마다 남기는 감사 로그입니다.
 -- materials.id를 참조(FK)하지 않는 이유: 삭제된 자재의 기록도 그대로 남아있어야 하기 때문입니다.
 create table audit_log (

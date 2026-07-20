@@ -192,8 +192,10 @@ def insert_history(data):
     return res.data[0]["id"]
 
 
-def update_material_qty(material_id, new_qty):
-    get_authed_client().table("materials").update({"current_qty": new_qty}).eq("id", material_id).execute()
+# 현재재고를 delta만큼 더합니다(음수면 뺌). DB에 있는 값을 직접 기준으로 원자적으로 더하기 때문에,
+# 먼저 값을 읽어와서 계산 후 다시 쓰는 방식과 달리 동시 편집으로 값이 덮어써질 위험이 없습니다.
+def adjust_material_qty(material_id, delta):
+    get_authed_client().rpc("adjust_material_qty", {"p_material_id": material_id, "p_delta": delta}).execute()
     load_materials.clear()
 
 
@@ -305,9 +307,7 @@ def mark_purchasing(request_id, vendor, unit_price):
 # 입고 처리: 요청 상태를 '입고완료'로 바꾸고, 실제 재고에 반영하면서 구매이력에도 한 줄 남깁니다.
 # 구매이력은 이후 이 구매요청이 삭제되더라도 지워지지 않고 그대로 남습니다.
 def receive_request(request_id, material_id, received_qty, vendor, unit_price):
-    material = get_material(material_id)
-    new_qty = int(material["current_qty"] or 0) + received_qty
-    update_material_qty(material_id, new_qty)
+    adjust_material_qty(material_id, received_qty)
 
     get_authed_client().table("purchase_history").insert({
         "material_id": material_id,
@@ -334,9 +334,7 @@ def delete_purchase_request(request_id):
     row = res.data[0]
 
     if row["status"] == "입고완료" and row.get("received_qty"):
-        material = get_material(row["material_id"])
-        reverted_qty = int(material["current_qty"] or 0) - int(row["received_qty"])
-        update_material_qty(row["material_id"], reverted_qty)
+        adjust_material_qty(row["material_id"], -int(row["received_qty"]))
         get_authed_client().table("purchase_history").update({
             "reverted_at": _now(),
         }).eq("request_id", request_id).execute()
