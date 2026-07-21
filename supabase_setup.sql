@@ -144,7 +144,8 @@ create table boq (
     motor_power numeric,
     reducer_ratio text,
     timing_chain text,     -- 타이밍벨트 & 체인
-    remarks text
+    remarks text,
+    conveyor_id_with_plc text  -- 컨베이어 ID에 PLC 그룹 코드까지 붙은 형태 (예: "CC101 LM101 BD001"). 검색용 보조 필드.
 );
 
 alter table boq enable row level security;
@@ -155,6 +156,21 @@ create policy "admin insert boq" on boq
     for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 create policy "admin update boq" on boq
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+-- BOQ를 컨베이어 ID로 검색할 때 띄어쓰기/대소문자를 무시하고 비교합니다.
+-- (예: "lm101bd001"이나 "LM101 BD001"이나 다 같은 걸로 찾아짐)
+create or replace function find_boq(p_search text)
+returns setof boq
+language sql
+stable
+as $$
+    select * from boq
+    where upper(regexp_replace(conveyor_id, '\s+', '', 'g')) = upper(regexp_replace(p_search, '\s+', '', 'g'))
+       or upper(regexp_replace(conveyor_id_with_plc, '\s+', '', 'g')) = upper(regexp_replace(p_search, '\s+', '', 'g'))
+    limit 1;
+$$;
+
+grant execute on function find_boq(text) to authenticated;
 
 -- 구매 요청 워크플로우 테이블입니다.
 -- 상태 흐름: 요청됨 -> 검토중 -> 승인됨 -> 구매중 -> 입고완료 (검토중/승인됨 단계에서 반려됨으로 갈 수 있음)

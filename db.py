@@ -41,6 +41,7 @@ BOQ_COLUMNS = {
     "reducer_ratio": "감속비",
     "timing_chain": "타이밍벨트/체인",
     "remarks": "비고",
+    "conveyor_id_with_plc": "컨베이어 ID(PLC그룹포함)",
 }
 
 
@@ -129,10 +130,12 @@ def load_history():
     return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "담당자", "설비ID", "문제", "조치", "부품메모", "비고"])
 
 
-# 컨베이어 ID로 BOQ(설비 설계 사양) 한 건을 찾습니다. conveyor_id가 테이블에서 유일하므로 최대 한 건만 나옵니다.
+# 컨베이어 ID로 BOQ(설비 설계 사양) 한 건을 찾습니다. "LM101 BD001"처럼 PLC 그룹 없는 형태와
+# "CC101 LM101 BD001"처럼 PLC 그룹 포함된 형태 둘 다로 검색할 수 있고, 띄어쓰기/대소문자도 무시됩니다.
+# (실제 비교는 DB의 find_boq 함수가 담당합니다.)
 @st.cache_data(ttl=60)
 def get_boq(conveyor_id):
-    res = get_authed_client().table("boq").select("*").eq("conveyor_id", conveyor_id).execute()
+    res = get_authed_client().rpc("find_boq", {"p_search": conveyor_id}).execute()
     if not res.data:
         return None
     df = pd.DataFrame(res.data, columns=BOQ_COLUMNS.keys())

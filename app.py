@@ -570,7 +570,8 @@ if tab6.open:
 if tab7.open:
     with tab7:
         st.subheader("BOQ 검색 (컨베이어 ID)")
-        conveyor_id = st.text_input("컨베이어 ID (예: LD451 RK003)", key="boq_search")
+        st.caption("PLC 그룹 없는 형태(예: LM101 BD001)와 PLC 그룹 포함된 형태(예: CC101 LM101 BD001) 둘 다 검색됩니다.")
+        conveyor_id = st.text_input("컨베이어 ID", key="boq_search")
 
         if conveyor_id:
             # BOQ 스펙이 없어도(예: 컨베이어가 아니라 제어반 등 BOQ에 애초에 없는 설비) 교체이력은
@@ -579,15 +580,20 @@ if tab7.open:
             boq_df = db.get_boq(conveyor_id.strip())
             if boq_df is None:
                 st.info("해당 ID의 BOQ(설계 스펙) 정보가 없습니다.")
+                # 교체이력은 history.설비ID(PLC 그룹 없는 형태)로 남아있으므로, 검색어를 그대로 씁니다.
+                equipment_id_for_history = conveyor_id.strip()
             else:
                 filterable_table(boq_df, key="boq_spec_grid", height=120)
+                # PLC 그룹 포함 형태로 검색했더라도, 교체이력은 PLC 그룹 없는 원래 컨베이어 ID로 남아있어서
+                # BOQ에서 찾은 원래 컨베이어 ID를 이력 검색에 씁니다.
+                equipment_id_for_history = boq_df.iloc[0]["컨베이어 ID"]
 
             st.divider()
             st.markdown("**교체(사용) 이력**")
             # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
             history_df = db.load_history()
             equipment_history = history_df[
-                (history_df["설비ID"] == conveyor_id.strip()) & (history_df["구분"] == "출고")
+                (history_df["설비ID"] == equipment_id_for_history) & (history_df["구분"] == "출고")
             ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
             if equipment_history.empty:
                 st.info("이 설비의 교체 이력이 없습니다.")
