@@ -42,19 +42,31 @@ AGGRID_KOREAN_LOCALE = {
 # 컬럼 제목 아래에 필터 검색창이 항상 보이는(엑셀 필터 줄과 비슷한) 표를 그려줍니다.
 # 화면에서 필터/정렬한 결과를 돌려주므로, 그 결과를 그대로 엑셀 다운로드에 넘기면
 # "화면에 보이는 것"과 "다운로드되는 것"이 서로 다른 문제가 생기지 않습니다.
-def filterable_table(df, key, height=500):
+# selectable=True로 주면 행을 하나 골라 선택할 수 있게 되고, (필터된 표, 선택된 행) 두 개를 돌려줍니다.
+def filterable_table(df, key, height=500, selectable=False):
     grid_builder = GridOptionsBuilder.from_dataframe(df)
     grid_builder.configure_default_column(filter=True, sortable=True, resizable=True, floatingFilter=True)
+    if selectable:
+        grid_builder.configure_selection(selection_mode="single", use_checkbox=False)
     grid_options = grid_builder.build()
     grid_options["localeText"] = AGGRID_KOREAN_LOCALE
-    # update_on/data_return_mode 기본값이 이미 필터·정렬 변경 시 그 결과를 돌려주므로 따로 옵션을 안 줘도 됩니다.
+    # update_on/data_return_mode 기본값이 이미 필터·정렬·선택 변경 시 그 결과를 돌려주므로 따로 옵션을 안 줘도 됩니다.
     grid_response = AgGrid(
         df, gridOptions=grid_options, height=height, key=key,
         # 기본 상태에선 셀 안 글자를 마우스로 드래그해서 선택/복사할 수 없어서, CSS로 풀어줍니다.
         custom_css={".ag-cell": {"user-select": "text"}},
     )
     filtered_df = grid_response["data"]
-    return filtered_df if filtered_df is not None else df
+    filtered_df = filtered_df if filtered_df is not None else df
+
+    if not selectable:
+        return filtered_df
+
+    selected_rows = grid_response.get("selected_rows")
+    selected_row = None
+    if selected_rows is not None and len(selected_rows) > 0:
+        selected_row = selected_rows.iloc[0] if hasattr(selected_rows, "iloc") else selected_rows[0]
+    return filtered_df, selected_row
 
 # 표를 엑셀 바이트로 변환합니다. 같은 내용의 표면 다시 변환하지 않고 캐시된 결과를 재사용합니다.
 # (버튼을 안 눌러도 화면이 다시 그려질 때마다 이 변환이 실행되므로, 캐시가 없으면 매번 낭비됩니다.)
@@ -374,31 +386,16 @@ if tab3.open:
         outgoing_df = history_df[history_df["구분"] == "출고"]
         st.caption("행을 클릭해서 선택한 뒤, 아래 버튼을 누르면 그 설비ID로 'BOQ 검색' 탭으로 이동합니다.")
 
-        grid_builder = GridOptionsBuilder.from_dataframe(outgoing_df)
-        grid_builder.configure_default_column(filter=True, sortable=True, resizable=True, floatingFilter=True)
-        grid_builder.configure_selection(selection_mode="single", use_checkbox=False)
-        grid_options = grid_builder.build()
-        grid_options["localeText"] = AGGRID_KOREAN_LOCALE
-        # update_on/data_return_mode 기본값이 이미 선택·필터·정렬 변경 시 그 결과를 돌려줍니다.
-        grid_response = AgGrid(
-            outgoing_df, gridOptions=grid_options, height=500, key="outgoing_grid",
-            custom_css={".ag-cell": {"user-select": "text"}},
-        )
+        filtered_outgoing, selected_row = filterable_table(outgoing_df, key="outgoing_grid", selectable=True)
 
-        selected_rows = grid_response.get("selected_rows")
-        if selected_rows is not None and len(selected_rows) > 0:
-            selected_row = selected_rows.iloc[0] if hasattr(selected_rows, "iloc") else selected_rows[0]
-            clicked_equipment_id = selected_row.get("설비ID") if hasattr(selected_row, "get") else None
-            if clicked_equipment_id:
-                # 탭 전환은 st.tabs가 이미 그려진 뒤라 여기서 바로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
-                st.button(
-                    f"🔎 '{clicked_equipment_id}' BOQ 검색으로 이동", key="jump_to_boq_btn",
-                    on_click=jump_to_boq, args=(clicked_equipment_id,),
-                )
+        clicked_equipment_id = selected_row.get("설비ID") if selected_row is not None and hasattr(selected_row, "get") else None
+        if clicked_equipment_id:
+            # 탭 전환은 st.tabs가 이미 그려진 뒤라 여기서 바로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
+            st.button(
+                f"🔎 '{clicked_equipment_id}' BOQ 검색으로 이동", key="jump_to_boq_btn",
+                on_click=jump_to_boq, args=(clicked_equipment_id,),
+            )
 
-        filtered_outgoing = grid_response["data"]
-        if filtered_outgoing is None:
-            filtered_outgoing = outgoing_df
         excel_download_button(filtered_outgoing, "사용이력.xlsx", key="dl_outgoing")
 
         st.divider()
