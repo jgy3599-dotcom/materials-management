@@ -345,12 +345,15 @@ def delete_purchase_request(request_id):
 
 
 # 구매이력 목록을 자재 부품명과 함께 가져옵니다. 입고완료된 구매가 실제로 쌓이는,
-# 삭제되지 않는 영구 기록입니다.
+# 삭제되지 않는 영구 기록이라 시간이 지나면 1000건이 넘을 수 있어, materials/history와
+# 마찬가지로 여러 페이지로 나눠 가져옵니다.
 @st.cache_data(ttl=15)
 def load_purchase_history():
-    res = get_authed_client().table("purchase_history").select(
-        "*, materials(part_name)"
-    ).order("id", desc=True).execute()
+    supabase = get_authed_client()
+    data = _load_all_rows(
+        lambda: supabase.table("purchase_history").select("id", count="exact").order("id", desc=True),
+        lambda: supabase.table("purchase_history").select("*, materials(part_name)").order("id", desc=True),
+    )
     rows = [
         {
             "id": row["id"],
@@ -362,6 +365,6 @@ def load_purchase_history():
             "구매요청ID": row["request_id"],
             "취소일시": row["reverted_at"],
         }
-        for row in res.data
+        for row in data
     ]
     return pd.DataFrame(rows, columns=["id", "부품명(규격)", "수량", "거래업체", "단가", "입고일", "구매요청ID", "취소일시"])
