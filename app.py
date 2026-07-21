@@ -118,11 +118,19 @@ def edit_material_dialog(material_id):
                 after_data = {
                     "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
                     "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
-                    "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
+                    "standard_qty": standard_qty, "note": note,
                     "warehouse_no": warehouse_no or None, "order_code": order_code or None,
                 }
                 db.update_material(material_id, after_data)
-                db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, after_data)
+
+                # 현재재고는 다른 필드처럼 그냥 덮어쓰지 않고, "이 화면 열었을 때 값 대비 얼마나 바뀌었는지"를
+                # 계산해서 그 차이만큼만 더합니다. 그래야 이 폼이 열려있는 동안 출고/입고로 재고가
+                # 이미 바뀌었어도, 그 변화를 덮어써서 없애버리지 않고 관리자의 수정 의도(±차이)만 반영됩니다.
+                qty_delta = current_qty - int(row["current_qty"] or 0)
+                if qty_delta != 0:
+                    db.adjust_material_qty(material_id, qty_delta)
+
+                db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, {**after_data, "current_qty": current_qty})
                 st.success(f"'{part}' 자재가 수정되었습니다.")
                 st.rerun()
 
