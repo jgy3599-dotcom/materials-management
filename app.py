@@ -217,7 +217,7 @@ def purchase_request_dialog(request_id):
     st.divider()
     with st.expander("🗑️ 이 요청 삭제"):
         if status == "입고완료":
-            st.warning(f"입고완료 상태입니다. 삭제하면 현재재고에서 {row['입고수량']}개를 다시 빼고, 관련 입출고 이력도 함께 삭제합니다.")
+            st.warning(f"입고완료 상태입니다. 삭제하면 현재재고에서 {row['입고수량']}개를 다시 빼고, 구매 이력에는 취소된 것으로 표시됩니다(기록 자체는 지워지지 않고 남습니다).")
         else:
             st.caption("아직 입고 전이라 재고에는 영향이 없습니다.")
         confirm = st.checkbox("삭제하겠습니다", key=f"confirm_delete_pr_{request_id}")
