@@ -2,7 +2,7 @@ import io
 import streamlit as st
 from datetime import date
 from postgrest.exceptions import APIError
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder
 import db
 import auth
 import mail
@@ -40,16 +40,21 @@ AGGRID_KOREAN_LOCALE = {
 
 
 # 컬럼 제목 아래에 필터 검색창이 항상 보이는(엑셀 필터 줄과 비슷한) 표를 그려줍니다.
+# 화면에서 필터/정렬한 결과를 돌려주므로, 그 결과를 그대로 엑셀 다운로드에 넘기면
+# "화면에 보이는 것"과 "다운로드되는 것"이 서로 다른 문제가 생기지 않습니다.
 def filterable_table(df, key, height=500):
     grid_builder = GridOptionsBuilder.from_dataframe(df)
     grid_builder.configure_default_column(filter=True, sortable=True, resizable=True, floatingFilter=True)
     grid_options = grid_builder.build()
     grid_options["localeText"] = AGGRID_KOREAN_LOCALE
-    AgGrid(
+    # update_on/data_return_mode 기본값이 이미 필터·정렬 변경 시 그 결과를 돌려주므로 따로 옵션을 안 줘도 됩니다.
+    grid_response = AgGrid(
         df, gridOptions=grid_options, height=height, key=key,
         # 기본 상태에선 셀 안 글자를 마우스로 드래그해서 선택/복사할 수 없어서, CSS로 풀어줍니다.
         custom_css={".ag-cell": {"user-select": "text"}},
     )
+    filtered_df = grid_response["data"]
+    return filtered_df if filtered_df is not None else df
 
 # 표를 엑셀 바이트로 변환합니다. 같은 내용의 표면 다시 변환하지 않고 캐시된 결과를 재사용합니다.
 # (버튼을 안 눌러도 화면이 다시 그려질 때마다 이 변환이 실행되므로, 캐시가 없으면 매번 낭비됩니다.)
@@ -253,9 +258,9 @@ if tab1.open:
         st.subheader("전체 자재 목록")
         materials = materials_df
         # AgGrid는 엑셀처럼 컬럼 제목 아래에 필터 검색창이 붙는 표 컴포넌트입니다.
-        filterable_table(_materials_for_alert, key="materials_grid")
+        filtered_materials = filterable_table(_materials_for_alert, key="materials_grid")
         st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
-        excel_download_button(_materials_for_alert, "자재목록.xlsx", key="dl_materials")
+        excel_download_button(filtered_materials, "자재목록.xlsx", key="dl_materials")
 
         st.divider()
         if st.session_state.role != "관리자":
@@ -374,9 +379,9 @@ if tab3.open:
         grid_builder.configure_selection(selection_mode="single", use_checkbox=False)
         grid_options = grid_builder.build()
         grid_options["localeText"] = AGGRID_KOREAN_LOCALE
+        # update_on/data_return_mode 기본값이 이미 선택·필터·정렬 변경 시 그 결과를 돌려줍니다.
         grid_response = AgGrid(
             outgoing_df, gridOptions=grid_options, height=500, key="outgoing_grid",
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
             custom_css={".ag-cell": {"user-select": "text"}},
         )
 
@@ -391,7 +396,10 @@ if tab3.open:
                     on_click=jump_to_boq, args=(clicked_equipment_id,),
                 )
 
-        excel_download_button(outgoing_df, "사용이력.xlsx", key="dl_outgoing")
+        filtered_outgoing = grid_response["data"]
+        if filtered_outgoing is None:
+            filtered_outgoing = outgoing_df
+        excel_download_button(filtered_outgoing, "사용이력.xlsx", key="dl_outgoing")
 
         st.divider()
         st.subheader("출고 등록")
@@ -465,8 +473,8 @@ if tab5.open:
         if selected_category != "전체":
             need_purchase = need_purchase[need_purchase["카테고리"] == selected_category]
 
-        filterable_table(need_purchase, key="need_purchase_grid")
-        excel_download_button(need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
+        filtered_need_purchase = filterable_table(need_purchase, key="need_purchase_grid")
+        excel_download_button(filtered_need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
 
         st.divider()
         recipient_email = st.text_input("받는 사람 이메일", value=st.secrets["naver_mail"]["sender_email"])
@@ -532,8 +540,8 @@ if tab6.open:
             st.info("조건에 맞는 구매 요청이 없습니다.")
         else:
             display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
-            filterable_table(filtered[display_cols], key="purchase_requests_grid")
-            excel_download_button(filtered[display_cols], "구매요청목록.xlsx", key="dl_purchase_requests")
+            filtered_requests = filterable_table(filtered[display_cols], key="purchase_requests_grid")
+            excel_download_button(filtered_requests, "구매요청목록.xlsx", key="dl_purchase_requests")
 
             if st.session_state.role == "관리자":
                 st.markdown("**요청 관리** (진행 중인 요청은 처리, 끝난 요청도 삭제 가능)")
@@ -548,16 +556,16 @@ if tab6.open:
         st.subheader("📜 구매 이력")
         st.caption("구매요청을 거쳐 입고완료된 구매가 쌓이는 기록입니다. 위 '구매 요청 목록'에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.")
         purchase_history_df = db.load_purchase_history()
-        filterable_table(purchase_history_df, key="purchase_history_grid")
-        excel_download_button(purchase_history_df, "구매이력.xlsx", key="dl_purchase_history")
+        filtered_purchase_history = filterable_table(purchase_history_df, key="purchase_history_grid")
+        excel_download_button(filtered_purchase_history, "구매이력.xlsx", key="dl_purchase_history")
 
         st.divider()
         st.subheader("📜 입고 이력 (레거시)")
         st.caption("구매요청 워크플로우 도입 이전에 등록된 입고 기록입니다. 워크플로우로 처리한 최신 구매 건은 위 '구매 이력'에서 확인하세요.")
         incoming_df = history_df[history_df["구분"] == "입고"]
         incoming_df = incoming_df[~incoming_df["비고"].str.startswith("구매요청 #", na=False)]
-        filterable_table(incoming_df, key="incoming_grid")
-        excel_download_button(incoming_df, "입고이력.xlsx", key="dl_incoming")
+        filtered_incoming = filterable_table(incoming_df, key="incoming_grid")
+        excel_download_button(filtered_incoming, "입고이력.xlsx", key="dl_incoming")
 
 # ---------- 탭 7: BOQ 검색 ----------
 if tab7.open:
@@ -579,5 +587,5 @@ if tab7.open:
                 if equipment_history.empty:
                     st.info("이 설비의 교체 이력이 없습니다.")
                 else:
-                    filterable_table(equipment_history, key="boq_history_grid")
-                    excel_download_button(equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
+                    filtered_equipment_history = filterable_table(equipment_history, key="boq_history_grid")
+                    excel_download_button(filtered_equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
