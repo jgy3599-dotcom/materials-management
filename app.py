@@ -573,22 +573,24 @@ if tab7.open:
         conveyor_id = st.text_input("컨베이어 ID (예: LD451 RK003)", key="boq_search")
 
         if conveyor_id:
+            # BOQ 스펙이 없어도(예: 컨베이어가 아니라 제어반 등 BOQ에 애초에 없는 설비) 교체이력은
+            # 있을 수 있으므로, 스펙 검색과 이력 검색을 서로 상관없이 각각 따로 진행합니다.
+            st.markdown("**설계 스펙**")
             boq_df = db.get_boq(conveyor_id.strip())
             if boq_df is None:
-                st.warning("해당 컨베이어 ID의 BOQ 정보를 찾을 수 없습니다.")
+                st.info("해당 ID의 BOQ(설계 스펙) 정보가 없습니다.")
             else:
-                st.markdown("**설계 스펙**")
                 filterable_table(boq_df, key="boq_spec_grid", height=120)
 
-                st.divider()
-                st.markdown("**교체(사용) 이력**")
-                # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
-                history_df = db.load_history()
-                equipment_history = history_df[
-                    (history_df["설비ID"] == conveyor_id.strip()) & (history_df["구분"] == "출고")
-                ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
-                if equipment_history.empty:
-                    st.info("이 설비의 교체 이력이 없습니다.")
-                else:
-                    filtered_equipment_history = filterable_table(equipment_history, key="boq_history_grid")
-                    excel_download_button(filtered_equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
+            st.divider()
+            st.markdown("**교체(사용) 이력**")
+            # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
+            history_df = db.load_history()
+            equipment_history = history_df[
+                (history_df["설비ID"] == conveyor_id.strip()) & (history_df["구분"] == "출고")
+            ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
+            if equipment_history.empty:
+                st.info("이 설비의 교체 이력이 없습니다.")
+            else:
+                filtered_equipment_history = filterable_table(equipment_history, key="boq_history_grid")
+                excel_download_button(filtered_equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
