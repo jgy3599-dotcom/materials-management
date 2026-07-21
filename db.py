@@ -45,16 +45,18 @@ BOQ_COLUMNS = {
 
 
 # Supabase 서버에 접속하는 연결 객체를 만듭니다.
-# cache_resource로 감싸두면, 화면이 다시 그려질 때마다 매번 새로 연결하지 않고 재사용합니다.
-# 이 클라이언트는 서버 전체에서 공유되므로, 로그인 세션이 실려있지 않은 "맨몸" 클라이언트입니다.
-@st.cache_resource
+# 예전에는 @st.cache_resource로 감싸서 모든 사용자가 객체 하나를 같이 썼는데, 그러면
+# 여러 사람이 거의 동시에 접속했을 때 한 사람의 로그인 세션이 순간적으로 다른 사람의
+# 요청에 실려버릴 위험이 있었습니다(특히 병렬로 여러 페이지를 한꺼번에 조회하는 동안).
+# session_state에 담아두면 같은 브라우저 세션(탭) 안에서는 그대로 재사용되면서도,
+# 사람마다 자기 객체를 따로 가지게 되어 이 위험이 없어집니다.
 def get_client():
-    return create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    if "_supabase_client" not in st.session_state:
+        st.session_state["_supabase_client"] = create_client(st.secrets["supabase"]["url"], st.secrets["supabase"]["key"])
+    return st.session_state["_supabase_client"]
 
 
-# 로그인한 사용자의 세션을 매 요청마다 다시 실어서 반환합니다.
-# get_client()는 여러 사용자가 동시에 공유하는 클라이언트라서, 이걸 안 하면
-# 다른 사람의 로그인 세션이 섞여버릴 수 있습니다. DB에 접근하는 함수들은 전부 이 함수를 씁니다.
+# 로그인한 사용자의 세션을 매 요청마다 다시 실어서 반환합니다. DB에 접근하는 함수들은 전부 이 함수를 씁니다.
 def get_authed_client():
     client = get_client()
     if "access_token" in st.session_state:
