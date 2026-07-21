@@ -70,7 +70,9 @@ def filterable_table(df, key, height=500, selectable=False):
 
 # 표를 엑셀 바이트로 변환합니다. 같은 내용의 표면 다시 변환하지 않고 캐시된 결과를 재사용합니다.
 # (버튼을 안 눌러도 화면이 다시 그려질 때마다 이 변환이 실행되므로, 캐시가 없으면 매번 낭비됩니다.)
-@st.cache_data
+# ttl/max_entries를 안 주면 서버를 오래 켜둘수록(필터 조건마다 다른 내용이 계속 생기므로)
+# 캐시가 끝없이 쌓여 메모리를 계속 잡아먹으므로, 오래된 것과 너무 많은 것은 정리되게 합니다.
+@st.cache_data(ttl=60, max_entries=20)
 def _to_excel_bytes(df):
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False, engine="openpyxl")
