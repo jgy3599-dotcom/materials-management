@@ -583,7 +583,11 @@ if tab7.open:
 
                 st.divider()
                 st.markdown("**교체(사용) 이력**")
-                equipment_history = db.get_equipment_history(conveyor_id.strip())
+                # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
+                history_df = db.load_history()
+                equipment_history = history_df[
+                    (history_df["설비ID"] == conveyor_id.strip()) & (history_df["구분"] == "출고")
+                ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
                 if equipment_history.empty:
                     st.info("이 설비의 교체 이력이 없습니다.")
                 else:

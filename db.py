@@ -139,27 +139,6 @@ def get_boq(conveyor_id):
     return df.rename(columns=BOQ_COLUMNS)
 
 
-# 특정 설비(컨베이어)의 교체(사용/출고) 이력만 가져옵니다. BOQ 검색 화면에서 씁니다.
-@st.cache_data(ttl=60)
-def get_equipment_history(equipment_id):
-    res = get_authed_client().table("history").select("*, materials(part_name)") \
-        .eq("equipment_id", equipment_id).eq("direction", "출고").order("occurred_on", desc=True).execute()
-    rows = [
-        {
-            "일자": row["occurred_on"],
-            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
-            "수량": row["quantity"],
-            "담당자": row["manager"],
-            "문제": row["problem"],
-            "조치": row["action_taken"],
-            "부품메모": row["part_memo"],
-            "비고": row["note"],
-        }
-        for row in res.data
-    ]
-    return pd.DataFrame(rows, columns=["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"])
-
-
 # 표준재고에서 현재재고를 뺀 값(구매필요 수량)을 매번 다시 계산해서 표에 붙여줍니다.
 def with_구매필요(df):
     result = df.copy()
