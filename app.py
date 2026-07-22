@@ -247,9 +247,22 @@ auth.check_login()
 # 있습니다 (사용이력 → BOQ 검색 자동 이동에 씀). 라디오 값이 바뀌면 화면이 자동으로 다시 실행되므로,
 # 아래에서 각 메뉴 내용을 "if selected_page == ...:"로 감싸서 지금 선택된 메뉴만 계산하게 합니다.
 PAGES = ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
+if "active_tab" not in st.session_state:
+    st.session_state["active_tab"] = PAGES[0]
+
+# 라디오 버튼 대신, 각 메뉴를 버튼으로 그립니다. 지금 선택된 메뉴만 type="primary"(테마 색 채움)로
+# 표시해서 버튼 자체의 기본 스타일만으로도 깔끔하게 구분되도록 합니다(CSS 없이 정갈한 모양).
 with st.sidebar:
-    selected_page = st.radio("메뉴", PAGES, key="active_tab", label_visibility="collapsed")
+    for page in PAGES:
+        if st.button(
+            page, key=f"nav_{page}", width="stretch",
+            type="primary" if st.session_state["active_tab"] == page else "secondary",
+        ):
+            st.session_state["active_tab"] = page
+            st.rerun()
     st.divider()
+
+selected_page = st.session_state["active_tab"]
 
 auth.render_sidebar()
 
