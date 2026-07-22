@@ -80,7 +80,7 @@ def _to_excel_bytes(df):
 
 
 # 사용(출고) 이력에서 설비ID 행을 골라 "BOQ 검색으로 이동" 버튼을 누르면 실행되는 콜백입니다.
-# 탭 전환(active_tab)은 위젯이 이미 그려진 뒤에는 코드로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
+# 메뉴 전환(active_tab)은 위젯이 이미 그려진 뒤에는 코드로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
 def jump_to_boq(equipment_id):
     st.session_state["boq_search"] = equipment_id
     st.session_state["active_tab"] = "🔎 BOQ 검색"
@@ -241,362 +241,367 @@ def purchase_request_dialog(request_id):
             st.rerun()
 
 auth.check_login()
+
+# 왼쪽 사이드바의 메뉴(라디오 버튼)로 화면을 전환합니다. key="active_tab"으로 값을 저장해두면,
+# 코드에서 st.session_state["active_tab"]에 메뉴 이름을 넣는 것만으로 다른 메뉴로 전환시킬 수
+# 있습니다 (사용이력 → BOQ 검색 자동 이동에 씀). 라디오 값이 바뀌면 화면이 자동으로 다시 실행되므로,
+# 아래에서 각 메뉴 내용을 "if selected_page == ...:"로 감싸서 지금 선택된 메뉴만 계산하게 합니다.
+PAGES = ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
+with st.sidebar:
+    selected_page = st.radio("메뉴", PAGES, key="active_tab", label_visibility="collapsed")
+    st.divider()
+
 auth.render_sidebar()
 
-# 화면 맨 위에 제목을 표시합니다.
+# 화면 맨 위에 제목과 짧은 설명을 표시합니다.
 st.title("📦 자재관리 시스템")
+st.caption("설비 자재 재고, 입출고 이력, 구매 요청을 한 곳에서 관리합니다.")
 
 # 자재 목록은 탭에 안 들어가도 상단 알림에 필요해서 항상 불러옵니다. 이력(history_df)은 실제로
 # 쓰는 탭(사용이력/구매요청)이 열려있을 때만 불러오도록, 각 탭 안에서 필요할 때 불러옵니다.
 materials_df = db.load_materials()
-
-# 탭에 들어가지 않아도 바로 보이도록, 구매가 필요한 자재 건수를 제목 아래에 항상 띄워둡니다.
 _materials_for_alert = db.with_구매필요(materials_df)
 _need_purchase_count = int((_materials_for_alert["구매필요"] > 0).sum())
+
+# 탭에 들어가지 않아도 전체 현황을 한눈에 볼 수 있도록, 요약 수치를 카드 형태로 한 줄에 띄워둡니다.
+with st.container(horizontal=True):
+    st.metric(":material/inventory_2: 전체 자재", f"{len(materials_df)}건", border=True)
+    st.metric(":material/category: 카테고리", f"{materials_df['카테고리'].nunique()}개", border=True)
+    st.metric(
+        ":material/shopping_cart: 구매 필요", f"{_need_purchase_count}건", border=True,
+        delta=f"확인 필요" if _need_purchase_count > 0 else None, delta_color="inverse",
+    )
+
 if _need_purchase_count > 0:
     st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
-# tabs()는 화면 안에 탭(클릭해서 전환하는 페이지)을 여러 개 만들어줍니다.
-# key + on_change="rerun"을 주면, 코드에서 st.session_state["active_tab"]에 탭 이름을 넣는 것만으로
-# 다른 탭으로 화면을 전환시킬 수 있습니다 (사용이력 → BOQ 검색 자동 이동에 씀).
-# 이렇게 탭 상태를 추적하면 탭을 클릭할 때마다 화면 전체가 다시 실행되므로, 각 탭 안의 내용을
-# tabN.open으로 감싸서 지금 보이는 탭의 내용만 계산하고 나머지 탭은 건너뛰게 합니다.
-tab1, tab2, tab3, tab5, tab6, tab7 = st.tabs(
-    ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"],
-    key="active_tab", on_change="rerun",
-)
+st.divider()
 
-# ---------- 탭 1: 자재 목록 ----------
-if tab1.open:
-    with tab1:
-        st.subheader("전체 자재 목록")
-        materials = materials_df
-        # AgGrid는 엑셀처럼 컬럼 제목 아래에 필터 검색창이 붙는 표 컴포넌트입니다.
-        filtered_materials = filterable_table(_materials_for_alert, key="materials_grid")
-        st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
-        excel_download_button(filtered_materials, "자재목록.xlsx", key="dl_materials")
+# ---------- 자재 목록 ----------
+if selected_page == "📋 자재 목록":
+    st.subheader("전체 자재 목록")
+    materials = materials_df
+    # AgGrid는 엑셀처럼 컬럼 제목 아래에 필터 검색창이 붙는 표 컴포넌트입니다.
+    filtered_materials = filterable_table(_materials_for_alert, key="materials_grid")
+    st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
+    excel_download_button(filtered_materials, "자재목록.xlsx", key="dl_materials")
 
-        st.divider()
-        if st.session_state.role != "관리자":
-            st.caption("✏️ 자재 수정/삭제는 관리자만 가능합니다.")
+    st.divider()
+    if st.session_state.role != "관리자":
+        st.caption("✏️ 자재 수정/삭제는 관리자만 가능합니다.")
+    else:
+        st.markdown("**✏️ 자재 수정/삭제**")
+        st.caption("카테고리나 검색어로 좁힌 뒤, 원하는 자재 옆의 ✏️ 버튼을 누르면 수정/삭제 창이 뜹니다.")
+
+        if materials.empty:
+            st.info("먼저 '자재 등록' 메뉴에서 자재를 하나 이상 등록해주세요.")
         else:
-            st.markdown("**✏️ 자재 수정/삭제**")
-            st.caption("카테고리나 검색어로 좁힌 뒤, 원하는 자재 옆의 ✏️ 버튼을 누르면 수정/삭제 창이 뜹니다.")
+            col_cat, col_kw = st.columns(2)
+            with col_cat:
+                edit_category_list = ["전체"] + sorted(materials["카테고리"].dropna().unique().tolist())
+                edit_selected_category = st.selectbox("카테고리", edit_category_list, key="edit_category")
+            with col_kw:
+                edit_keyword = st.text_input("부품명(규격) 검색", key="edit_keyword")
 
-            if materials.empty:
-                st.info("먼저 '자재 등록' 탭에서 자재를 하나 이상 등록해주세요.")
+            narrowed = materials
+            if edit_selected_category != "전체":
+                narrowed = narrowed[narrowed["카테고리"] == edit_selected_category]
+            if edit_keyword:
+                narrowed = narrowed[narrowed["부품명(규격)"].str.contains(edit_keyword, case=False, na=False)]
+
+            # 행마다 아이콘 버튼을 직접 그리는 방식은 개수가 많아지면 느려지므로, 결과가 너무 많으면
+            # 버튼 목록 대신 안내만 보여주고 더 좁혀달라고 요청합니다.
+            MAX_EDIT_ROWS = 30
+            st.caption(f"검색 결과: {len(narrowed)}건")
+            if len(narrowed) == 0:
+                st.info("조건에 맞는 자재가 없습니다.")
+            elif len(narrowed) > MAX_EDIT_ROWS:
+                st.warning(f"결과가 {len(narrowed)}건이라 너무 많습니다. 카테고리나 검색어로 {MAX_EDIT_ROWS}건 이하로 좁혀주세요.")
             else:
-                col_cat, col_kw = st.columns(2)
-                with col_cat:
-                    edit_category_list = ["전체"] + sorted(materials["카테고리"].dropna().unique().tolist())
-                    edit_selected_category = st.selectbox("카테고리", edit_category_list, key="edit_category")
-                with col_kw:
-                    edit_keyword = st.text_input("부품명(규격) 검색", key="edit_keyword")
+                header = st.columns([2, 3, 2, 2, 1])
+                header[0].markdown("**카테고리**")
+                header[1].markdown("**부품명(규격)**")
+                header[2].markdown("**현재재고**")
+                header[3].markdown("**구매필요**")
+                header[4].markdown("**수정**")
+                for _, r in narrowed.iterrows():
+                    c1, c2, c3, c4, c5 = st.columns([2, 3, 2, 2, 1])
+                    c1.write(r["카테고리"])
+                    c2.write(r["부품명(규격)"])
+                    c3.write(r["현재재고"])
+                    c4.write(r["표준재고"] - r["현재재고"])
+                    if c5.button("✏️", key=f"edit_btn_{int(r['id'])}", use_container_width=True):
+                        edit_material_dialog(int(r["id"]))
 
-                narrowed = materials
-                if edit_selected_category != "전체":
-                    narrowed = narrowed[narrowed["카테고리"] == edit_selected_category]
-                if edit_keyword:
-                    narrowed = narrowed[narrowed["부품명(규격)"].str.contains(edit_keyword, case=False, na=False)]
+        if st.session_state.user_email == SUPER_ADMIN_EMAIL:
+            with st.expander("🗒️ 감사 로그 (최근 수정/삭제 이력)"):
+                filterable_table(db.load_audit_log(), key="audit_log_grid")
 
-                # 행마다 아이콘 버튼을 직접 그리는 방식은 개수가 많아지면 느려지므로, 결과가 너무 많으면
-                # 버튼 목록 대신 안내만 보여주고 더 좁혀달라고 요청합니다.
-                MAX_EDIT_ROWS = 30
-                st.caption(f"검색 결과: {len(narrowed)}건")
-                if len(narrowed) == 0:
-                    st.info("조건에 맞는 자재가 없습니다.")
-                elif len(narrowed) > MAX_EDIT_ROWS:
-                    st.warning(f"결과가 {len(narrowed)}건이라 너무 많습니다. 카테고리나 검색어로 {MAX_EDIT_ROWS}건 이하로 좁혀주세요.")
-                else:
-                    header = st.columns([2, 3, 2, 2, 1])
-                    header[0].markdown("**카테고리**")
-                    header[1].markdown("**부품명(규격)**")
-                    header[2].markdown("**현재재고**")
-                    header[3].markdown("**구매필요**")
-                    header[4].markdown("**수정**")
-                    for _, r in narrowed.iterrows():
-                        c1, c2, c3, c4, c5 = st.columns([2, 3, 2, 2, 1])
-                        c1.write(r["카테고리"])
-                        c2.write(r["부품명(규격)"])
-                        c3.write(r["현재재고"])
-                        c4.write(r["표준재고"] - r["현재재고"])
-                        if c5.button("✏️", key=f"edit_btn_{int(r['id'])}", use_container_width=True):
-                            edit_material_dialog(int(r["id"]))
+# ---------- 자재 등록 ----------
+if selected_page == "➕ 자재 등록":
+    st.subheader("새 자재 등록")
+    # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 목록에 없는 완전히 새로운
+    # 카테고리를 등록해야 할 수도 있으니 "직접 입력" 옵션도 함께 둡니다.
+    NEW_CATEGORY_OPTION = "➕ 새 카테고리 직접 입력"
+    existing_categories = sorted(materials_df["카테고리"].dropna().unique().tolist())
+    category_options = existing_categories + [NEW_CATEGORY_OPTION]
 
-            if st.session_state.user_email == SUPER_ADMIN_EMAIL:
-                with st.expander("🗒️ 감사 로그 (최근 수정/삭제 이력)"):
-                    filterable_table(db.load_audit_log(), key="audit_log_grid")
+    # form()으로 감싼 입력창들은 "등록하기" 버튼을 눌러야 한번에 처리됩니다.
+    with st.form("register_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            category_choice = st.selectbox("카테고리", category_options)
+            new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
+            sub_type = st.text_input("구분 (선택 입력, 예: 베어링/키/풀리)")
+            part = st.text_input("부품명(규격)")
+            order_code = st.text_input("발주코드 (선택 입력, 외산(TAMS)에서 사용)")
+            location = st.text_input("설치위치")
+            manufacturer = st.text_input("제조사", value="-")
+        with col2:
+            vendor = st.text_input("거래처", value="-")
+            in_use_qty = st.number_input("적용수량", min_value=0, step=1)
+            standard_qty = st.number_input("표준재고", min_value=0, step=1)
+            current_qty = st.number_input("현재재고", min_value=0, step=1)
+            warehouse_no = st.text_input("창고번호 (선택 입력, 모터/전기/외산(TAMS)에서 사용)")
+        note = st.text_input("비고")
 
-# ---------- 탭 2: 자재 등록 ----------
-if tab2.open:
-    with tab2:
-        st.subheader("새 자재 등록")
-        # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 목록에 없는 완전히 새로운
-        # 카테고리를 등록해야 할 수도 있으니 "직접 입력" 옵션도 함께 둡니다.
-        NEW_CATEGORY_OPTION = "➕ 새 카테고리 직접 입력"
-        existing_categories = sorted(materials_df["카테고리"].dropna().unique().tolist())
-        category_options = existing_categories + [NEW_CATEGORY_OPTION]
+        # form_submit_button은 form 안에서 제출 버튼 역할을 합니다.
+        submitted = st.form_submit_button("등록하기")
 
-        # form()으로 감싼 입력창들은 "등록하기" 버튼을 눌러야 한번에 처리됩니다.
-        with st.form("register_form", clear_on_submit=True):
+        if submitted:
+            category = new_category if category_choice == NEW_CATEGORY_OPTION else category_choice
+            if not part:
+                st.error("부품명(규격)은 반드시 입력해야 합니다.")
+            elif category_choice == NEW_CATEGORY_OPTION and not new_category:
+                st.error("새 카테고리명을 입력해주세요.")
+            else:
+                new_data = {
+                    "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
+                    "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
+                    "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
+                    "warehouse_no": warehouse_no or None, "order_code": order_code or None,
+                }
+                new_material_id = db.insert_material(new_data)
+                db.insert_audit_log(st.session_state.user_email, "insert", new_material_id, part, None, new_data)
+                st.success(f"'{part}' 자재가 등록되었습니다.")
+                st.rerun()
+
+# ---------- 사용(출고) 이력 ----------
+# 입고(구매) 이력은 '🛒 구매 요청' 메뉴에서 따로 관리합니다. 여기는 설비 교체 등으로
+# 자재가 나간(출고) 기록만 다룹니다.
+if selected_page == "🔧 사용(출고) 이력":
+    history_df = db.load_history()
+
+    st.subheader("사용(출고) 이력")
+    outgoing_df = history_df[history_df["구분"] == "출고"]
+    st.caption("행을 클릭해서 선택한 뒤, 아래 버튼을 누르면 그 설비ID로 'BOQ 검색' 메뉴로 이동합니다.")
+
+    filtered_outgoing, selected_row = filterable_table(outgoing_df, key="outgoing_grid", selectable=True)
+
+    clicked_equipment_id = selected_row.get("설비ID") if selected_row is not None and hasattr(selected_row, "get") else None
+    if clicked_equipment_id:
+        # 메뉴 전환은 라디오가 이미 그려진 뒤라 여기서 바로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
+        st.button(
+            f"🔎 '{clicked_equipment_id}' BOQ 검색으로 이동", key="jump_to_boq_btn",
+            on_click=jump_to_boq, args=(clicked_equipment_id,),
+        )
+
+    excel_download_button(filtered_outgoing, "사용이력.xlsx", key="dl_outgoing")
+
+    st.divider()
+    st.subheader("출고 등록")
+    materials = materials_df
+
+    if materials.empty:
+        st.info("먼저 '자재 등록' 메뉴에서 자재를 하나 이상 등록해주세요.")
+    else:
+        # 카테고리 선택은 form 밖에 둬야, 고를 때마다 바로바로 아래 부품 목록이 좁혀집니다.
+        # (form 안에 넣으면 "등록하기"를 눌러야만 반영되기 때문입니다.)
+        category_list = ["전체"] + sorted(materials["카테고리"].dropna().unique().tolist())
+        selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list)
+
+        if selected_category == "전체":
+            narrowed = materials
+        else:
+            narrowed = materials[materials["카테고리"] == selected_category]
+
+        with st.form("history_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
-                category_choice = st.selectbox("카테고리", category_options)
-                new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
-                sub_type = st.text_input("구분 (선택 입력, 예: 베어링/키/풀리)")
-                part = st.text_input("부품명(규격)")
-                order_code = st.text_input("발주코드 (선택 입력, 외산(TAMS)에서 사용)")
-                location = st.text_input("설치위치")
-                manufacturer = st.text_input("제조사", value="-")
+                selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
+                move_qty = st.number_input("수량", min_value=1, step=1)
             with col2:
-                vendor = st.text_input("거래처", value="-")
-                in_use_qty = st.number_input("적용수량", min_value=0, step=1)
-                standard_qty = st.number_input("표준재고", min_value=0, step=1)
-                current_qty = st.number_input("현재재고", min_value=0, step=1)
-                warehouse_no = st.text_input("창고번호 (선택 입력, 모터/전기/외산(TAMS)에서 사용)")
-            note = st.text_input("비고")
+                move_date = st.date_input("일자", value=date.today())
+                manager = st.text_input("담당자")
 
-            # form_submit_button은 form 안에서 제출 버튼 역할을 합니다.
+            # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다.
+            col3, col4 = st.columns(2)
+            with col3:
+                equipment_id = st.text_input("설비 ID (예: LD451 RK003)")
+                problem = st.text_input("문제/고장 내역")
+            with col4:
+                action_taken = st.text_input("조치 내역")
+                part_memo = st.text_input("부품 메모")
+            note = st.text_input("비고 (그 외 자유 메모)")
+
             submitted = st.form_submit_button("등록하기")
 
             if submitted:
-                category = new_category if category_choice == NEW_CATEGORY_OPTION else category_choice
-                if not part:
-                    st.error("부품명(규격)은 반드시 입력해야 합니다.")
-                elif category_choice == NEW_CATEGORY_OPTION and not new_category:
-                    st.error("새 카테고리명을 입력해주세요.")
-                else:
-                    new_data = {
-                        "category": category, "sub_type": sub_type or None, "part_name": part, "install_location": location,
-                        "manufacturer": manufacturer, "vendor": vendor, "in_use_qty": in_use_qty,
-                        "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
-                        "warehouse_no": warehouse_no or None, "order_code": order_code or None,
-                    }
-                    new_material_id = db.insert_material(new_data)
-                    db.insert_audit_log(st.session_state.user_email, "insert", new_material_id, part, None, new_data)
-                    st.success(f"'{part}' 자재가 등록되었습니다.")
-                    st.rerun()
+                material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+                material_id = int(material_row["id"])
 
-# ---------- 탭 3: 사용(출고) 이력 ----------
-# 입고(구매) 이력은 '🛒 구매 요청' 탭에서 따로 관리합니다. 여기는 설비 교체 등으로
-# 자재가 나간(출고) 기록만 다룹니다.
-if tab3.open:
-    with tab3:
-        history_df = db.load_history()
+                # history 테이블에 이번 출고 기록을 추가합니다.
+                db.insert_history({
+                    "occurred_on": move_date.isoformat(), "direction": "출고",
+                    "material_id": material_id, "quantity": move_qty,
+                    "manager": manager, "note": note or None,
+                    "equipment_id": equipment_id or None, "problem": problem or None,
+                    "action_taken": action_taken or None, "part_memo": part_memo or None,
+                })
 
-        st.subheader("사용(출고) 이력")
-        outgoing_df = history_df[history_df["구분"] == "출고"]
-        st.caption("행을 클릭해서 선택한 뒤, 아래 버튼을 누르면 그 설비ID로 'BOQ 검색' 탭으로 이동합니다.")
+                # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다.
+                db.adjust_material_qty(material_id, -move_qty)
 
-        filtered_outgoing, selected_row = filterable_table(outgoing_df, key="outgoing_grid", selectable=True)
+                st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
+                st.rerun()
 
-        clicked_equipment_id = selected_row.get("설비ID") if selected_row is not None and hasattr(selected_row, "get") else None
-        if clicked_equipment_id:
-            # 탭 전환은 st.tabs가 이미 그려진 뒤라 여기서 바로 못 바꾸고, 버튼 콜백 안에서만 바꿀 수 있습니다.
-            st.button(
-                f"🔎 '{clicked_equipment_id}' BOQ 검색으로 이동", key="jump_to_boq_btn",
-                on_click=jump_to_boq, args=(clicked_equipment_id,),
-            )
+# ---------- 구매 필요 알림 ----------
+if selected_page == "⚠️ 구매 필요 알림":
+    st.subheader("구매가 필요한 자재")
+    need_purchase = _materials_for_alert[_materials_for_alert["구매필요"] > 0].copy()
+    # 부족한 정도가 큰 자재부터 위에 보이도록 정렬합니다.
+    need_purchase = need_purchase.sort_values("구매필요", ascending=False)
 
-        excel_download_button(filtered_outgoing, "사용이력.xlsx", key="dl_outgoing")
+    st.metric("구매 필요 자재 건수", f"{len(need_purchase)}건")
 
-        st.divider()
-        st.subheader("출고 등록")
-        materials = materials_df
+    category_list = ["전체"] + sorted(need_purchase["카테고리"].dropna().unique().tolist())
+    selected_category = st.selectbox("카테고리로 좁히기", category_list, key="alert_category")
+    if selected_category != "전체":
+        need_purchase = need_purchase[need_purchase["카테고리"] == selected_category]
 
-        if materials.empty:
-            st.info("먼저 '자재 등록' 탭에서 자재를 하나 이상 등록해주세요.")
+    filtered_need_purchase = filterable_table(need_purchase, key="need_purchase_grid")
+    excel_download_button(filtered_need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
+
+    st.divider()
+    recipient_email = st.text_input("받는 사람 이메일", value=st.secrets["naver_mail"]["sender_email"])
+    if st.button("📧 알림 메일 보내기"):
+        if need_purchase.empty:
+            st.info("현재 구매가 필요한 자재가 없어 보낼 내용이 없습니다.")
+        elif not recipient_email:
+            st.error("받는 사람 이메일을 입력해주세요.")
         else:
-            # 카테고리 선택은 form 밖에 둬야, 고를 때마다 바로바로 아래 부품 목록이 좁혀집니다.
-            # (form 안에 넣으면 "등록하기"를 눌러야만 반영되기 때문입니다.)
-            category_list = ["전체"] + sorted(materials["카테고리"].dropna().unique().tolist())
-            selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list)
+            try:
+                mail.send_purchase_alert_email(need_purchase, recipient_email)
+                st.success(f"{recipient_email}로 알림 메일을 보냈습니다.")
+            except Exception as e:
+                st.error(f"메일 발송에 실패했습니다: {e}")
 
-            if selected_category == "전체":
-                narrowed = materials
+# ---------- 구매 요청 ----------
+if selected_page == "🛒 구매 요청":
+    history_df = db.load_history()
+
+    st.subheader("새 구매 요청")
+    materials_for_request = materials_df
+
+    category_list = ["전체"] + sorted(materials_for_request["카테고리"].dropna().unique().tolist())
+    selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list, key="pr_category")
+    narrowed = materials_for_request if selected_category == "전체" else materials_for_request[materials_for_request["카테고리"] == selected_category]
+
+    # 부품 선택은 form 밖에 둬야, 고를 때마다 바로 아래 재고 현황이 갱신됩니다.
+    selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
+    if selected_part:
+        part_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+        st.caption(f"표준재고: {part_row['표준재고']}   /   현재재고: {part_row['현재재고']}")
+
+    with st.form("purchase_request_form", clear_on_submit=True):
+        requester_name = st.text_input("요청자", value=st.session_state.user_email)
+        requested_qty = st.number_input("요청수량", min_value=1, step=1)
+        request_note = st.text_input("요청사유 (선택)")
+        submitted = st.form_submit_button("요청 등록")
+
+        if submitted:
+            if not requester_name:
+                st.error("요청자를 입력해주세요.")
             else:
-                narrowed = materials[materials["카테고리"] == selected_category]
-
-            with st.form("history_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
-                    move_qty = st.number_input("수량", min_value=1, step=1)
-                with col2:
-                    move_date = st.date_input("일자", value=date.today())
-                    manager = st.text_input("담당자")
-
-                # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다.
-                col3, col4 = st.columns(2)
-                with col3:
-                    equipment_id = st.text_input("설비 ID (예: LD451 RK003)")
-                    problem = st.text_input("문제/고장 내역")
-                with col4:
-                    action_taken = st.text_input("조치 내역")
-                    part_memo = st.text_input("부품 메모")
-                note = st.text_input("비고 (그 외 자유 메모)")
-
-                submitted = st.form_submit_button("등록하기")
-
-                if submitted:
-                    material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
-                    material_id = int(material_row["id"])
-
-                    # history 테이블에 이번 출고 기록을 추가합니다.
-                    db.insert_history({
-                        "occurred_on": move_date.isoformat(), "direction": "출고",
-                        "material_id": material_id, "quantity": move_qty,
-                        "manager": manager, "note": note or None,
-                        "equipment_id": equipment_id or None, "problem": problem or None,
-                        "action_taken": action_taken or None, "part_memo": part_memo or None,
-                    })
-
-                    # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다.
-                    db.adjust_material_qty(material_id, -move_qty)
-
-                    st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
-                    st.rerun()
-
-# ---------- 탭 5: 구매 필요 알림 ----------
-if tab5.open:
-    with tab5:
-        st.subheader("구매가 필요한 자재")
-        need_purchase = _materials_for_alert[_materials_for_alert["구매필요"] > 0].copy()
-        # 부족한 정도가 큰 자재부터 위에 보이도록 정렬합니다.
-        need_purchase = need_purchase.sort_values("구매필요", ascending=False)
-
-        st.metric("구매 필요 자재 건수", f"{len(need_purchase)}건")
-
-        category_list = ["전체"] + sorted(need_purchase["카테고리"].dropna().unique().tolist())
-        selected_category = st.selectbox("카테고리로 좁히기", category_list, key="alert_category")
-        if selected_category != "전체":
-            need_purchase = need_purchase[need_purchase["카테고리"] == selected_category]
-
-        filtered_need_purchase = filterable_table(need_purchase, key="need_purchase_grid")
-        excel_download_button(filtered_need_purchase, "구매필요목록.xlsx", key="dl_need_purchase")
-
-        st.divider()
-        recipient_email = st.text_input("받는 사람 이메일", value=st.secrets["naver_mail"]["sender_email"])
-        if st.button("📧 알림 메일 보내기"):
-            if need_purchase.empty:
-                st.info("현재 구매가 필요한 자재가 없어 보낼 내용이 없습니다.")
-            elif not recipient_email:
-                st.error("받는 사람 이메일을 입력해주세요.")
-            else:
-                try:
-                    mail.send_purchase_alert_email(need_purchase, recipient_email)
-                    st.success(f"{recipient_email}로 알림 메일을 보냈습니다.")
-                except Exception as e:
-                    st.error(f"메일 발송에 실패했습니다: {e}")
-
-# ---------- 탭 6: 구매 요청 ----------
-if tab6.open:
-    with tab6:
-        history_df = db.load_history()
-
-        st.subheader("새 구매 요청")
-        materials_for_request = materials_df
-
-        category_list = ["전체"] + sorted(materials_for_request["카테고리"].dropna().unique().tolist())
-        selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list, key="pr_category")
-        narrowed = materials_for_request if selected_category == "전체" else materials_for_request[materials_for_request["카테고리"] == selected_category]
-
-        # 부품 선택은 form 밖에 둬야, 고를 때마다 바로 아래 재고 현황이 갱신됩니다.
-        selected_part = st.selectbox("부품명(규격)", narrowed["부품명(규격)"].tolist())
-        if selected_part:
-            part_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
-            st.caption(f"표준재고: {part_row['표준재고']}   /   현재재고: {part_row['현재재고']}")
-
-        with st.form("purchase_request_form", clear_on_submit=True):
-            requester_name = st.text_input("요청자", value=st.session_state.user_email)
-            requested_qty = st.number_input("요청수량", min_value=1, step=1)
-            request_note = st.text_input("요청사유 (선택)")
-            submitted = st.form_submit_button("요청 등록")
-
-            if submitted:
-                if not requester_name:
-                    st.error("요청자를 입력해주세요.")
+                material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+                material_id = int(material_row["id"])
+                open_count = db.count_open_requests_for_material(material_id)
+                db.insert_purchase_request(material_id, requested_qty, requester_name, request_note)
+                if open_count > 0:
+                    st.warning(f"⚠️ '{selected_part}'에 이미 진행 중인 구매요청이 {open_count}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.")
                 else:
-                    material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
-                    material_id = int(material_row["id"])
-                    open_count = db.count_open_requests_for_material(material_id)
-                    db.insert_purchase_request(material_id, requested_qty, requester_name, request_note)
-                    if open_count > 0:
-                        st.warning(f"⚠️ '{selected_part}'에 이미 진행 중인 구매요청이 {open_count}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.")
-                    else:
-                        st.success(f"'{selected_part}' 구매요청이 등록되었습니다.")
-                    st.rerun()
+                    st.success(f"'{selected_part}' 구매요청이 등록되었습니다.")
+                st.rerun()
 
-        st.divider()
-        st.subheader("구매 요청 목록")
-        requests_df = db.load_purchase_requests()
+    st.divider()
+    st.subheader("구매 요청 목록")
+    requests_df = db.load_purchase_requests()
 
-        status_options = ["전체", "요청됨", "검토중", "승인됨", "구매중", "입고완료", "반려됨"]
-        selected_status = st.selectbox("상태로 좁히기", status_options)
-        filtered = requests_df if selected_status == "전체" else requests_df[requests_df["상태"] == selected_status]
+    status_options = ["전체", "요청됨", "검토중", "승인됨", "구매중", "입고완료", "반려됨"]
+    selected_status = st.selectbox("상태로 좁히기", status_options)
+    filtered = requests_df if selected_status == "전체" else requests_df[requests_df["상태"] == selected_status]
 
-        if filtered.empty:
-            st.info("조건에 맞는 구매 요청이 없습니다.")
+    if filtered.empty:
+        st.info("조건에 맞는 구매 요청이 없습니다.")
+    else:
+        display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
+        filtered_requests = filterable_table(filtered[display_cols], key="purchase_requests_grid")
+        excel_download_button(filtered_requests, "구매요청목록.xlsx", key="dl_purchase_requests")
+
+        if st.session_state.role == "관리자":
+            st.markdown("**요청 관리** (진행 중인 요청은 처리, 끝난 요청도 삭제 가능)")
+            for _, r in filtered.iterrows():
+                is_open = r["상태"] not in ("입고완료", "반려됨")
+                c1, c2 = st.columns([5, 1])
+                c1.write(f"#{r['id']}  {r['부품명(규격)']} ({r['요청수량']}개)  —  {r['상태']}")
+                if c2.button("처리" if is_open else "관리", key=f"process_pr_{r['id']}", use_container_width=True):
+                    purchase_request_dialog(int(r["id"]))
+
+    st.divider()
+    st.subheader("📜 구매 이력")
+    st.caption("구매요청을 거쳐 입고완료된 구매가 쌓이는 기록입니다. 위 '구매 요청 목록'에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.")
+    purchase_history_df = db.load_purchase_history()
+    filtered_purchase_history = filterable_table(purchase_history_df, key="purchase_history_grid")
+    excel_download_button(filtered_purchase_history, "구매이력.xlsx", key="dl_purchase_history")
+
+    st.divider()
+    st.subheader("📜 입고 이력 (레거시)")
+    st.caption("구매요청 워크플로우 도입 이전에 등록된 입고 기록입니다. 워크플로우로 처리한 최신 구매 건은 위 '구매 이력'에서 확인하세요.")
+    incoming_df = history_df[history_df["구분"] == "입고"]
+    incoming_df = incoming_df[~incoming_df["비고"].str.startswith("구매요청 #", na=False)]
+    filtered_incoming = filterable_table(incoming_df, key="incoming_grid")
+    excel_download_button(filtered_incoming, "입고이력.xlsx", key="dl_incoming")
+
+# ---------- BOQ 검색 ----------
+if selected_page == "🔎 BOQ 검색":
+    st.subheader("BOQ 검색 (컨베이어 ID)")
+    st.caption("PLC 그룹 없는 형태(예: LM101 BD001)와 PLC 그룹 포함된 형태(예: CC101 LM101 BD001) 둘 다 검색됩니다.")
+    conveyor_id = st.text_input("컨베이어 ID", key="boq_search")
+
+    if conveyor_id:
+        # BOQ 스펙이 없어도(예: 컨베이어가 아니라 제어반 등 BOQ에 애초에 없는 설비) 교체이력은
+        # 있을 수 있으므로, 스펙 검색과 이력 검색을 서로 상관없이 각각 따로 진행합니다.
+        st.markdown("**설계 스펙**")
+        boq_df = db.get_boq(conveyor_id.strip())
+        if boq_df is None:
+            st.info("해당 ID의 BOQ(설계 스펙) 정보가 없습니다.")
+            # 교체이력은 history.설비ID(PLC 그룹 없는 형태)로 남아있으므로, 검색어를 그대로 씁니다.
+            equipment_id_for_history = conveyor_id.strip()
         else:
-            display_cols = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태", "요청자", "거래업체", "단가", "입고수량", "요청일시"]
-            filtered_requests = filterable_table(filtered[display_cols], key="purchase_requests_grid")
-            excel_download_button(filtered_requests, "구매요청목록.xlsx", key="dl_purchase_requests")
-
-            if st.session_state.role == "관리자":
-                st.markdown("**요청 관리** (진행 중인 요청은 처리, 끝난 요청도 삭제 가능)")
-                for _, r in filtered.iterrows():
-                    is_open = r["상태"] not in ("입고완료", "반려됨")
-                    c1, c2 = st.columns([5, 1])
-                    c1.write(f"#{r['id']}  {r['부품명(규격)']} ({r['요청수량']}개)  —  {r['상태']}")
-                    if c2.button("처리" if is_open else "관리", key=f"process_pr_{r['id']}", use_container_width=True):
-                        purchase_request_dialog(int(r["id"]))
+            filterable_table(boq_df, key="boq_spec_grid", height=120)
+            # PLC 그룹 포함 형태로 검색했더라도, 교체이력은 PLC 그룹 없는 원래 컨베이어 ID로 남아있어서
+            # BOQ에서 찾은 원래 컨베이어 ID를 이력 검색에 씁니다.
+            equipment_id_for_history = boq_df.iloc[0]["컨베이어 ID"]
 
         st.divider()
-        st.subheader("📜 구매 이력")
-        st.caption("구매요청을 거쳐 입고완료된 구매가 쌓이는 기록입니다. 위 '구매 요청 목록'에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.")
-        purchase_history_df = db.load_purchase_history()
-        filtered_purchase_history = filterable_table(purchase_history_df, key="purchase_history_grid")
-        excel_download_button(filtered_purchase_history, "구매이력.xlsx", key="dl_purchase_history")
-
-        st.divider()
-        st.subheader("📜 입고 이력 (레거시)")
-        st.caption("구매요청 워크플로우 도입 이전에 등록된 입고 기록입니다. 워크플로우로 처리한 최신 구매 건은 위 '구매 이력'에서 확인하세요.")
-        incoming_df = history_df[history_df["구분"] == "입고"]
-        incoming_df = incoming_df[~incoming_df["비고"].str.startswith("구매요청 #", na=False)]
-        filtered_incoming = filterable_table(incoming_df, key="incoming_grid")
-        excel_download_button(filtered_incoming, "입고이력.xlsx", key="dl_incoming")
-
-# ---------- 탭 7: BOQ 검색 ----------
-if tab7.open:
-    with tab7:
-        st.subheader("BOQ 검색 (컨베이어 ID)")
-        st.caption("PLC 그룹 없는 형태(예: LM101 BD001)와 PLC 그룹 포함된 형태(예: CC101 LM101 BD001) 둘 다 검색됩니다.")
-        conveyor_id = st.text_input("컨베이어 ID", key="boq_search")
-
-        if conveyor_id:
-            # BOQ 스펙이 없어도(예: 컨베이어가 아니라 제어반 등 BOQ에 애초에 없는 설비) 교체이력은
-            # 있을 수 있으므로, 스펙 검색과 이력 검색을 서로 상관없이 각각 따로 진행합니다.
-            st.markdown("**설계 스펙**")
-            boq_df = db.get_boq(conveyor_id.strip())
-            if boq_df is None:
-                st.info("해당 ID의 BOQ(설계 스펙) 정보가 없습니다.")
-                # 교체이력은 history.설비ID(PLC 그룹 없는 형태)로 남아있으므로, 검색어를 그대로 씁니다.
-                equipment_id_for_history = conveyor_id.strip()
-            else:
-                filterable_table(boq_df, key="boq_spec_grid", height=120)
-                # PLC 그룹 포함 형태로 검색했더라도, 교체이력은 PLC 그룹 없는 원래 컨베이어 ID로 남아있어서
-                # BOQ에서 찾은 원래 컨베이어 ID를 이력 검색에 씁니다.
-                equipment_id_for_history = boq_df.iloc[0]["컨베이어 ID"]
-
-            st.divider()
-            st.markdown("**교체(사용) 이력**")
-            # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
-            history_df = db.load_history()
-            equipment_history = history_df[
-                (history_df["설비ID"] == equipment_id_for_history) & (history_df["구분"] == "출고")
-            ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
-            if equipment_history.empty:
-                st.info("이 설비의 교체 이력이 없습니다.")
-            else:
-                filtered_equipment_history = filterable_table(equipment_history, key="boq_history_grid")
-                excel_download_button(filtered_equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
+        st.markdown("**교체(사용) 이력**")
+        # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
+        history_df = db.load_history()
+        equipment_history = history_df[
+            (history_df["설비ID"] == equipment_id_for_history) & (history_df["구분"] == "출고")
+        ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
+        if equipment_history.empty:
+            st.info("이 설비의 교체 이력이 없습니다.")
+        else:
+            filtered_equipment_history = filterable_table(equipment_history, key="boq_history_grid")
+            excel_download_button(filtered_equipment_history, f"{conveyor_id.strip()}_교체이력.xlsx", key="dl_boq_history")
