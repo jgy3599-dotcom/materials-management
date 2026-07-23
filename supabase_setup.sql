@@ -154,10 +154,13 @@ alter table boq enable row level security;
 
 create policy "authenticated select boq" on boq
     for select using (auth.role() = 'authenticated');
-create policy "admin insert boq" on boq
-    for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+-- BOQ 추가/삭제는 일반 관리자가 아니라 최상위 권한자(gyjeong@hanjin.com)만 가능합니다.
+create policy "superadmin insert boq" on boq
+    for insert with check ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
 create policy "admin update boq" on boq
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "superadmin delete boq" on boq
+    for delete using ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
 
 -- BOQ를 컨베이어 ID로 검색할 때 띄어쓰기/대소문자를 무시하고 비교합니다.
 -- (예: "lm101bd001"이나 "LM101 BD001"이나 다 같은 걸로 찾아짐)
@@ -208,6 +211,9 @@ create policy "admin update purchase_requests" on purchase_requests
 create policy "admin delete purchase_requests" on purchase_requests
     for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 
+-- count_open_requests_for_material()에서 이 컬럼으로 자주 필터링하므로 인덱스를 걸어둡니다.
+create index idx_purchase_requests_material_id on purchase_requests (material_id);
+
 -- 구매 확정 이력 테이블입니다. 구매요청이 입고완료로 처리되는 순간 한 줄 기록되고,
 -- 이후 그 구매요청이 purchase_requests에서 삭제되더라도 이 기록은 지워지지 않고 남습니다.
 create table purchase_history (
@@ -233,3 +239,6 @@ create policy "admin update purchase_history" on purchase_history
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 create policy "admin delete purchase_history" on purchase_history
     for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+-- delete_purchase_request()에서 reverted_at을 채울 때 이 컬럼으로 찾으므로 인덱스를 걸어둡니다.
+create index idx_purchase_history_request_id on purchase_history (request_id);

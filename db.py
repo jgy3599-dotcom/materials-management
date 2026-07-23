@@ -125,7 +125,7 @@ def load_history():
             "구분": row["direction"],
             "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
             "수량": row["quantity"],
-            "담당자": row["manager"],
+            "자재 출처": row["manager"],
             "설비ID": row["equipment_id"],
             "문제": row["problem"],
             "조치": row["action_taken"],
@@ -134,7 +134,7 @@ def load_history():
         }
         for row in data
     ]
-    return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "담당자", "설비ID", "문제", "조치", "부품메모", "비고"])
+    return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "자재 출처", "설비ID", "문제", "조치", "부품메모", "비고"])
 
 
 # 컨베이어 ID로 BOQ(설비 설계 사양) 한 건을 찾습니다. "LM101 BD001"처럼 PLC 그룹 없는 형태와

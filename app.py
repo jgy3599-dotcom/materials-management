@@ -353,18 +353,24 @@ if selected_page == "📋 자재 목록":
 # ---------- 자재 등록 ----------
 if selected_page == "➕ 자재 등록":
     st.subheader("새 자재 등록")
-    # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 목록에 없는 완전히 새로운
-    # 카테고리를 등록해야 할 수도 있으니 "직접 입력" 옵션도 함께 둡니다.
+    # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 새 카테고리가 오타로 잘못
+    # 생기는 걸 막기 위해, "직접 입력" 옵션은 관리자에게만 보여줍니다.
     NEW_CATEGORY_OPTION = "➕ 새 카테고리 직접 입력"
     existing_categories = sorted(materials_df["카테고리"].dropna().unique().tolist())
-    category_options = existing_categories + [NEW_CATEGORY_OPTION]
+    category_options = existing_categories + [NEW_CATEGORY_OPTION] if st.session_state.role == "관리자" else existing_categories
+
+    # 카테고리 선택은 form 밖에 둬야, 고를 때마다 바로바로 아래 "새 카테고리명" 입력칸이
+    # 활성화/비활성화됩니다. (form 안에 넣으면 "등록하기"를 눌러야만 반영되기 때문입니다.)
+    category_choice = st.selectbox("카테고리", category_options)
 
     # form()으로 감싼 입력창들은 "등록하기" 버튼을 눌러야 한번에 처리됩니다.
     with st.form("register_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         with col1:
-            category_choice = st.selectbox("카테고리", category_options)
-            new_category = st.text_input("새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)")
+            new_category = st.text_input(
+                "새 카테고리명 (위에서 '➕ 새 카테고리 직접 입력'을 골랐을 때만 입력)",
+                disabled=(category_choice != NEW_CATEGORY_OPTION),
+            )
             sub_type = st.text_input("구분 (선택 입력, 예: 베어링/키/풀리)")
             part = st.text_input("부품명(규격)")
             order_code = st.text_input("발주코드 (선택 입력, 외산(TAMS)에서 사용)")
@@ -438,6 +444,9 @@ if selected_page == "🔧 사용(출고) 이력":
         else:
             narrowed = materials[materials["카테고리"] == selected_category]
 
+        # "자재 출처"는 이 자재를 어느 소속(보우/POSCO/한진 SPARE/한진 구매품/BEUMER)에서 썼는지 기록합니다.
+        MATERIAL_SOURCE_OPTIONS = ["보우", "POSCO", "한진 SPARE", "한진 구매품", "BEUMER", "직접 입력"]
+
         with st.form("history_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
             with col1:
@@ -445,7 +454,8 @@ if selected_page == "🔧 사용(출고) 이력":
                 move_qty = st.number_input("수량", min_value=1, step=1)
             with col2:
                 move_date = st.date_input("일자", value=date.today())
-                manager = st.text_input("담당자")
+                source_choice = st.selectbox("자재 출처", MATERIAL_SOURCE_OPTIONS)
+                custom_source = st.text_input("직접 입력 (위에서 '직접 입력'을 골랐을 때만)")
 
             # 설비 교체 작업일 때만 채우는 선택 입력칸들입니다.
             col3, col4 = st.columns(2)
@@ -462,12 +472,13 @@ if selected_page == "🔧 사용(출고) 이력":
             if submitted:
                 material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
                 material_id = int(material_row["id"])
+                source = custom_source if source_choice == "직접 입력" else source_choice
 
                 # history 테이블에 이번 출고 기록을 추가합니다.
                 db.insert_history({
                     "occurred_on": move_date.isoformat(), "direction": "출고",
                     "material_id": material_id, "quantity": move_qty,
-                    "manager": manager, "note": note or None,
+                    "manager": source, "note": note or None,
                     "equipment_id": equipment_id or None, "problem": problem or None,
                     "action_taken": action_taken or None, "part_memo": part_memo or None,
                 })
@@ -602,7 +613,7 @@ if selected_page == "🔎 BOQ 검색":
         history_df = db.load_history()
         equipment_history = history_df[
             (history_df["설비ID"] == equipment_id_for_history) & (history_df["구분"] == "출고")
-        ][["일자", "부품명(규격)", "수량", "담당자", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
+        ][["일자", "부품명(규격)", "수량", "자재 출처", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
         if equipment_history.empty:
             st.info("이 설비의 교체 이력이 없습니다.")
         else:
