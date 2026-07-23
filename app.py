@@ -511,8 +511,6 @@ if selected_page == "⚠️ 구매 필요 알림":
 
 # ---------- 구매 요청 ----------
 if selected_page == "🛒 구매 요청":
-    history_df = db.load_history()
-
     st.subheader("새 구매 요청")
     materials_for_request = materials_df
 
@@ -576,14 +574,6 @@ if selected_page == "🛒 구매 요청":
     purchase_history_df = db.load_purchase_history()
     filtered_purchase_history = filterable_table(purchase_history_df, key="purchase_history_grid")
     excel_download_button(filtered_purchase_history, "구매이력.xlsx", key="dl_purchase_history")
-
-    st.divider()
-    st.subheader("📜 입고 이력 (레거시)")
-    st.caption("구매요청 워크플로우 도입 이전에 등록된 입고 기록입니다. 워크플로우로 처리한 최신 구매 건은 위 '구매 이력'에서 확인하세요.")
-    incoming_df = history_df[history_df["구분"] == "입고"]
-    incoming_df = incoming_df[~incoming_df["비고"].str.startswith("구매요청 #", na=False)]
-    filtered_incoming = filterable_table(incoming_df, key="incoming_grid")
-    excel_download_button(filtered_incoming, "입고이력.xlsx", key="dl_incoming")
 
 # ---------- BOQ 검색 ----------
 if selected_page == "🔎 BOQ 검색":

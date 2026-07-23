@@ -52,6 +52,8 @@ create policy "authenticated insert history" on history
     for insert with check (auth.role() = 'authenticated');
 create policy "admin update history" on history
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin delete history" on history
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 
 -- 관리자가 아니면 current_qty(현재재고) 외의 필드는 바꿀 수 없도록 막는 트리거입니다.
 -- (입출고 등록 시 일반 사용자도 current_qty는 바꿔야 하므로, RLS 정책만으로는 이 구분을 표현할 수 없어 트리거로 처리합니다.)
@@ -216,7 +218,9 @@ create table purchase_history (
     unit_price numeric,
     received_on date not null,
     request_id bigint references purchase_requests (id) on delete set null,  -- 참고용. 원본 요청이 지워져도 이 이력은 유지됩니다.
-    reverted_at timestamptz  -- 원본 구매요청이 나중에 삭제(원복)되면 채워집니다. 기록 자체는 지우지 않고 취소 표시만 남깁니다.
+    reverted_at timestamptz,  -- 원본 구매요청이 나중에 삭제(원복)되면 채워집니다. 기록 자체는 지우지 않고 취소 표시만 남깁니다.
+    item_description text,  -- material_id로 연결 안 되는 레거시 건(자재목록에 없는 소모품 등)의 품명/규격을 텍스트로 남겨둡니다.
+    note text  -- 소모품이라 개별 관리 안 함 등 추가 설명.
 );
 
 alter table purchase_history enable row level security;
@@ -227,3 +231,5 @@ create policy "admin insert purchase_history" on purchase_history
     for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 create policy "admin update purchase_history" on purchase_history
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin delete purchase_history" on purchase_history
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');

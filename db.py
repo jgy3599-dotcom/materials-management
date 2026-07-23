@@ -61,7 +61,14 @@ def get_client():
 def get_authed_client():
     client = get_client()
     if "access_token" in st.session_state:
-        client.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+        # access_token이 만료된 상태면 set_session이 refresh_token으로 자동 갱신하면서 새 토큰 쌍을
+        # 돌려줍니다. 이 새 토큰을 session_state에 다시 저장해둬야, 다음 호출 때 이미 써버린(rotate된)
+        # 예전 refresh_token으로 다시 갱신을 시도하다 "Invalid Refresh Token: Already Used" 에러가 나는
+        # 것을 막을 수 있습니다.
+        auth_response = client.auth.set_session(st.session_state["access_token"], st.session_state["refresh_token"])
+        if auth_response.session:
+            st.session_state["access_token"] = auth_response.session.access_token
+            st.session_state["refresh_token"] = auth_response.session.refresh_token
     return client
 
 
@@ -341,7 +348,8 @@ def load_purchase_history():
     rows = [
         {
             "id": row["id"],
-            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
+            # material_id가 없는 레거시 건(자재목록에 없는 소모품 등)은 item_description을 대신 보여줍니다.
+            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else row["item_description"],
             "수량": row["quantity"],
             "거래업체": row["vendor"],
             "단가": row["unit_price"],
