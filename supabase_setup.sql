@@ -247,13 +247,14 @@ create index idx_purchase_history_request_id on purchase_history (request_id);
 -- 재고는 사용(출고) 등록 시점에 이미 정상 차감되므로, 이 테이블 자체는 재고에 영향을 주지 않습니다.
 create table repairs (
     id bigint generated always as identity primary key,
-    material_id bigint not null references materials (id),
+    material_id bigint references materials (id),  -- 자재목록에 없는 부품이면 비워두고 item_description을 씁니다.
     quantity integer not null,
     sent_on date not null,
     vendor text,          -- 어디로 보냈는지
     reason text,          -- 수리 사유
     expected_return_date date,
     note text,
+    item_description text,  -- material_id가 없을 때, 부품 이름을 텍스트로 남겨둡니다.
     created_at timestamptz not null default now()
 );
 

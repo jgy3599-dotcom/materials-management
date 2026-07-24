@@ -387,7 +387,8 @@ def load_repairs():
         rows.append({
             "id": row["id"],
             "material_id": row["material_id"],
-            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
+            # material_id가 없는 건(자재목록에 없는 부품)은 item_description을 대신 보여줍니다.
+            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else row["item_description"],
             "보낸수량": sent_qty,
             "반납수량": returned_qty,
             "상태": status,
