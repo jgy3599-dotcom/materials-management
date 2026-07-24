@@ -360,3 +360,76 @@ def load_purchase_history():
         for row in data
     ]
     return pd.DataFrame(rows, columns=["id", "부품명(규격)", "수량", "거래업체", "단가", "입고일", "구매요청ID", "취소일시"])
+
+
+# 수리 보낸 건 목록을 자재 부품명 + 지금까지 돌아온 수량과 함께 가져옵니다.
+# 상태는 저장된 값이 아니라, 보낸 수량과 반납된 수량 합계를 비교해서 그때그때 계산합니다.
+@st.cache_data(ttl=15)
+def load_repairs():
+    supabase = get_authed_client()
+    repairs_res = supabase.table("repairs").select("*, materials(part_name)").order("id", desc=True).execute()
+    returns_res = supabase.table("repair_returns").select("repair_id, returned_qty").execute()
+
+    returned_by_repair = {}
+    for r in returns_res.data:
+        returned_by_repair[r["repair_id"]] = returned_by_repair.get(r["repair_id"], 0) + r["returned_qty"]
+
+    rows = []
+    for row in repairs_res.data:
+        sent_qty = row["quantity"]
+        returned_qty = returned_by_repair.get(row["id"], 0)
+        if returned_qty <= 0:
+            status = "수리중"
+        elif returned_qty < sent_qty:
+            status = "일부 복귀"
+        else:
+            status = "복귀완료"
+        rows.append({
+            "id": row["id"],
+            "material_id": row["material_id"],
+            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
+            "보낸수량": sent_qty,
+            "반납수량": returned_qty,
+            "상태": status,
+            "보낸날짜": row["sent_on"],
+            "보낸곳": row["vendor"],
+            "사유": row["reason"],
+            "예상복귀일": row["expected_return_date"],
+            "비고": row["note"],
+        })
+    return pd.DataFrame(rows, columns=["id", "material_id", "부품명(규격)", "보낸수량", "반납수량", "상태", "보낸날짜", "보낸곳", "사유", "예상복귀일", "비고"])
+
+
+# 특정 수리 건의 반납 기록(회차별)을 가져옵니다.
+@st.cache_data(ttl=15)
+def load_repair_returns(repair_id):
+    res = get_authed_client().table("repair_returns").select("*").eq("repair_id", repair_id).order("id").execute()
+    rows = [
+        {"id": r["id"], "반납수량": r["returned_qty"], "반납일": r["returned_on"], "결과": r["outcome"], "비고": r["note"]}
+        for r in res.data
+    ]
+    return pd.DataFrame(rows, columns=["id", "반납수량", "반납일", "결과", "비고"])
+
+
+# 수리 건을 등록합니다. 사용(출고) 등록 시 자재출처가 한진 SPARE/한진 구매품이면 자동으로 같이
+# 호출되며, 재고는 이미 출고 등록 쪽에서 정상적으로 차감됐으므로 여기서는 다시 건드리지 않습니다.
+def insert_repair(material_id, quantity, sent_on, vendor, reason, expected_return_date, note):
+    get_authed_client().table("repairs").insert({
+        "material_id": material_id, "quantity": quantity, "sent_on": sent_on,
+        "vendor": vendor or None, "reason": reason or None,
+        "expected_return_date": expected_return_date, "note": note or None,
+    }).execute()
+    load_repairs.clear()
+
+
+# 수리 반납을 등록합니다. 한 수리 건에 여러 번 나눠서 걸릴 수 있어 회차별로 쌓입니다.
+# '정상복귀'인 만큼만 현재재고에 다시 더하고, '폐기'는 재고를 되돌리지 않습니다(그대로 소모 처리).
+def insert_repair_return(repair_id, material_id, returned_qty, returned_on, outcome, note):
+    get_authed_client().table("repair_returns").insert({
+        "repair_id": repair_id, "returned_qty": returned_qty, "returned_on": returned_on,
+        "outcome": outcome, "note": note or None,
+    }).execute()
+    if outcome == "정상복귀":
+        adjust_material_qty(material_id, returned_qty)
+    load_repairs.clear()
+    load_repair_returns.clear()

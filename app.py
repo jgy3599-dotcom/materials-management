@@ -246,7 +246,7 @@ auth.check_login()
 # 코드에서 st.session_state["active_tab"]에 메뉴 이름을 넣는 것만으로 다른 메뉴로 전환시킬 수
 # 있습니다 (사용이력 → BOQ 검색 자동 이동에 씀). 라디오 값이 바뀌면 화면이 자동으로 다시 실행되므로,
 # 아래에서 각 메뉴 내용을 "if selected_page == ...:"로 감싸서 지금 선택된 메뉴만 계산하게 합니다.
-PAGES = ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🔎 BOQ 검색"]
+PAGES = ["📋 자재 목록", "➕ 자재 등록", "🔧 사용(출고) 이력", "⚠️ 구매 필요 알림", "🛒 구매 요청", "🧰 수리 관리", "🔎 BOQ 검색"]
 if "active_tab" not in st.session_state:
     st.session_state["active_tab"] = PAGES[0]
 
@@ -483,8 +483,13 @@ if selected_page == "🔧 사용(출고) 이력":
                     "action_taken": action_taken or None, "part_memo": part_memo or None,
                 })
 
-                # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다.
+                # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다(자재출처와 상관없이 항상 차감).
                 db.adjust_material_qty(material_id, -move_qty)
+
+                # 한진 소유 자재(SPARE/구매품)를 썼으면, 나중에 수리돼서 돌아올 수도 있으니
+                # "수리 관리"에도 자동으로 같이 등록합니다. (재고는 위에서 이미 차감했으므로 중복 차감 안 함)
+                if source in ("한진 SPARE", "한진 구매품"):
+                    db.insert_repair(material_id, move_qty, move_date.isoformat(), None, problem or None, None, note or None)
 
                 st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
                 st.rerun()
@@ -585,6 +590,49 @@ if selected_page == "🛒 구매 요청":
     purchase_history_df = db.load_purchase_history()
     filtered_purchase_history = filterable_table(purchase_history_df, key="purchase_history_grid")
     excel_download_button(filtered_purchase_history, "구매이력.xlsx", key="dl_purchase_history")
+
+# ---------- 수리 관리 ----------
+# 수리 건은 여기서 직접 새로 등록하지 않습니다. "사용(출고) 이력" 탭에서 자재출처를 "한진 SPARE"나
+# "한진 구매품"으로 등록하면 자동으로 여기 생깁니다. 이 탭은 현황 확인 + 반납(복귀/폐기) 처리만 합니다.
+if selected_page == "🧰 수리 관리":
+    st.subheader("수리 현황")
+    st.caption("자재출처를 '한진 SPARE'나 '한진 구매품'으로 사용(출고) 등록하면 자동으로 여기 등록됩니다.")
+    st.caption("행을 클릭해서 선택한 뒤, 아래에서 반납(복귀/폐기)을 등록할 수 있습니다.")
+    repairs_df = db.load_repairs()
+    filtered_repairs, selected_repair = filterable_table(repairs_df, key="repairs_grid", selectable=True)
+    excel_download_button(filtered_repairs, "수리현황.xlsx", key="dl_repairs")
+
+    if selected_repair is not None and hasattr(selected_repair, "get"):
+        repair_id = selected_repair.get("id")
+        repair_material_id = selected_repair.get("material_id")
+        repair_part_name = selected_repair.get("부품명(규격)")
+        repair_sent_qty = selected_repair.get("보낸수량")
+        repair_returned_qty = selected_repair.get("반납수량")
+        if repair_id:
+            st.divider()
+            st.markdown(f"**'{repair_part_name}' 반납 등록** (보낸 수량 {repair_sent_qty}개 중 {repair_returned_qty}개 반납됨)")
+
+            with st.form("repair_return_form", clear_on_submit=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    return_qty = st.number_input("이번 반납 수량", min_value=1, step=1)
+                    return_on = st.date_input("반납일", value=date.today())
+                with col2:
+                    return_outcome = st.selectbox("결과", ["정상복귀", "폐기"])
+                return_note = st.text_input("비고", key="repair_return_note")
+
+                return_submitted = st.form_submit_button("반납 등록")
+
+                if return_submitted:
+                    db.insert_repair_return(int(repair_id), int(repair_material_id), return_qty, return_on.isoformat(), return_outcome, return_note)
+                    if return_outcome == "정상복귀":
+                        st.success(f"{return_qty}개 정상복귀 처리했습니다. 현재재고에 다시 더했습니다.")
+                    else:
+                        st.success(f"{return_qty}개 폐기 처리했습니다. 재고는 복구하지 않았습니다.")
+                    st.rerun()
+
+            st.markdown("**반납 이력**")
+            filterable_table(db.load_repair_returns(int(repair_id)), key="repair_returns_grid", height=200)
 
 # ---------- BOQ 검색 ----------
 if selected_page == "🔎 BOQ 검색":

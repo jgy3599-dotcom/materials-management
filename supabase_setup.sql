@@ -242,3 +242,51 @@ create policy "admin delete purchase_history" on purchase_history
 
 -- delete_purchase_request()에서 reverted_at을 채울 때 이 컬럼으로 찾으므로 인덱스를 걸어둡니다.
 create index idx_purchase_history_request_id on purchase_history (request_id);
+
+-- 수리 건 하나(자재출처가 한진 SPARE/한진 구매품인 사용(출고) 등록 시 자동으로 같이 생깁니다).
+-- 재고는 사용(출고) 등록 시점에 이미 정상 차감되므로, 이 테이블 자체는 재고에 영향을 주지 않습니다.
+create table repairs (
+    id bigint generated always as identity primary key,
+    material_id bigint not null references materials (id),
+    quantity integer not null,
+    sent_on date not null,
+    vendor text,          -- 어디로 보냈는지
+    reason text,          -- 수리 사유
+    expected_return_date date,
+    note text,
+    created_at timestamptz not null default now()
+);
+
+-- 수리 건 하나가 여러 번에 걸쳐 나눠서 돌아올 수 있어서(예: 1차 4개, 2차 1개), 반납은 별도 테이블로 둡니다.
+-- outcome='정상복귀'인 만큼만 현재재고에 다시 더하고, '폐기'는 재고를 복구하지 않습니다.
+create table repair_returns (
+    id bigint generated always as identity primary key,
+    repair_id bigint not null references repairs (id),
+    returned_qty integer not null,
+    returned_on date not null,
+    outcome text not null default '정상복귀',  -- '정상복귀' 또는 '폐기'
+    note text
+);
+
+alter table repairs enable row level security;
+alter table repair_returns enable row level security;
+
+create policy "authenticated select repairs" on repairs
+    for select using (auth.role() = 'authenticated');
+create policy "authenticated insert repairs" on repairs
+    for insert with check (auth.role() = 'authenticated');
+create policy "admin update repairs" on repairs
+    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin delete repairs" on repairs
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+create policy "authenticated select repair_returns" on repair_returns
+    for select using (auth.role() = 'authenticated');
+create policy "authenticated insert repair_returns" on repair_returns
+    for insert with check (auth.role() = 'authenticated');
+create policy "admin update repair_returns" on repair_returns
+    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+create policy "admin delete repair_returns" on repair_returns
+    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+
+create index idx_repair_returns_repair_id on repair_returns (repair_id);
