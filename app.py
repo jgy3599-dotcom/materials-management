@@ -483,12 +483,11 @@ if selected_page == "🔧 사용(출고) 이력":
                     "action_taken": action_taken or None, "part_memo": part_memo or None,
                 })
 
-                # 출고니까 현재재고를 줄여서 materials 테이블에도 반영합니다(자재출처와 상관없이 항상 차감).
-                db.adjust_material_qty(material_id, -move_qty)
-
-                # 한진 소유 자재(SPARE/구매품)를 썼으면, 나중에 수리돼서 돌아올 수도 있으니
-                # "수리 관리"에도 자동으로 같이 등록합니다. (재고는 위에서 이미 차감했으므로 중복 차감 안 함)
+                # 한진 소유 자재(SPARE/구매품)를 쓴 경우에만 현재재고를 차감하고 "수리 관리"에도
+                # 자동으로 등록합니다. 보우/POSCO/BEUMER 등 외부 소속 자재는 우리 재고가 아니라서
+                # 차감하지 않습니다(실무 확인 결과).
                 if source in ("한진 SPARE", "한진 구매품"):
+                    db.adjust_material_qty(material_id, -move_qty)
                     db.insert_repair(material_id, move_qty, move_date.isoformat(), None, problem or None, None, note or None)
 
                 st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
