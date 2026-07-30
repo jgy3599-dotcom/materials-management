@@ -4,6 +4,11 @@ from db import get_client, get_authed_client
 
 # 비밀번호를 몇 번 이상 틀리면 일정 시간 동안 로그인 시도를 막아서, 무차별 대입 시도를 어렵게 만듭니다.
 # 여러 사람이 공용 계정을 함께 쓰다가 오타로 잠기는 일이 없도록 횟수는 넉넉하게 둡니다.
+#
+# ※ 지금 배포 환경(Streamlit Community Cloud)에서는 이 잠금이 동작하지 않습니다.
+#   프록시 뒤라서 접속자를 구분할 수 없기 때문입니다(아래 _usable_ip 설명 참고).
+#   따라서 현재 무차별 대입 방어는 Supabase 자체 rate limit과 비밀번호 강도에 의존합니다.
+#   자체 서버 등 접속자 IP가 보이는 환경으로 옮기면 코드 수정 없이 다시 동작합니다.
 LOGIN_MAX_ATTEMPTS = 10
 LOGIN_LOCKOUT_SECONDS = 300
 # 이 시간보다 오래된 실패는 잊습니다. 사무실 직원들은 NAT 때문에 전부 같은 공인 IP로 묶이는데,
@@ -29,6 +34,12 @@ UNIDENTIFIABLE_IPS = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 # 구분키로 쓸 수 있는 IP인지 걸러냅니다. 쓸 수 없으면 None을 돌려주고, 그러면 잠금 기능이
 # 통째로 꺼집니다. 잘못 잠그는 것보다 안 잠그는 게 낫기 때문입니다
 # (무차별 대입 방어는 그 경우 Supabase 자체 rate limit에 맡깁니다).
+#
+# X-Forwarded-For 헤더도 대안으로 실제 배포본에서 확인해봤지만 쓸 수 없었습니다(2026-07-31):
+#   - 값이 Streamlit Cloud 내부망 주소(10.x)라서 진짜 접속자 IP가 아니었고,
+#   - 같은 기기에서 새로고침할 때마다 값이 바뀌었으며(공격자는 매번 새 칸을 받게 됨),
+#   - 서로 다른 기기가 같은 값을 받는 경우도 있었습니다(엉뚱한 사람이 잠김).
+# 막아야 할 사람은 못 막고 막지 말아야 할 사람은 막게 되므로, 없느니만 못합니다. 다시 시도하지 마세요.
 def _usable_ip(ip):
     return None if ip in UNIDENTIFIABLE_IPS else ip
 
@@ -51,18 +62,6 @@ def check_login():
 
     st.title("📦 자재관리 시스템")
     st.subheader("로그인")
-
-    # ▼▼▼ [임시 진단] 확인이 끝나면 이 블록(주석 5줄 + caption 1줄)을 지우세요. ▼▼▼
-    # ip_address가 루프백으로만 나와서(프록시 뒤라 그렇습니다) 접속자를 구분할 수 없는 상태입니다.
-    # 프록시가 원래 접속자 IP를 헤더로 넘겨주는지 확인하려고 전달용 헤더 2개를 같이 찍습니다.
-    # 둘 중 하나에 진짜 IP(사무실과 휴대폰이 서로 다른 값)가 보이면 그걸로 잠금을 복구할 수 있고,
-    # 둘 다 None이면 이 환경에서는 접속자 구분이 불가능하다는 결론입니다.
-    st.caption(
-        f"[임시 진단] ip={st.context.ip_address!r} / "
-        f"XFF={st.context.headers.get('X-Forwarded-For')!r} / "
-        f"XRI={st.context.headers.get('X-Real-Ip')!r}"
-    )
-    # ▲▲▲ [임시 진단] 여기까지 ▲▲▲
 
     now = time.time()
 
