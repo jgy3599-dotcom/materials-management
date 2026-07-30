@@ -218,11 +218,16 @@ def _now():
 
 
 # 구매 요청 목록을 자재 부품명 + 표준재고/현재재고와 함께 가져옵니다.
+# 요청이 계속 쌓이면 1000건을 넘을 수 있어, materials/history와 마찬가지로 여러 페이지로 나눠 가져옵니다.
 @st.cache_data(ttl=15)
 def load_purchase_requests():
-    res = get_authed_client().table("purchase_requests").select(
-        "*, materials(part_name, standard_qty, current_qty)"
-    ).order("id", desc=True).execute()
+    supabase = get_authed_client()
+    data = _load_all_rows(
+        lambda: supabase.table("purchase_requests").select("id", count="exact").order("id", desc=True),
+        lambda: supabase.table("purchase_requests").select(
+            "*, materials(part_name, standard_qty, current_qty)"
+        ).order("id", desc=True),
+    )
     rows = [
         {
             "id": row["id"],
@@ -240,7 +245,7 @@ def load_purchase_requests():
             "입고수량": row["received_qty"],
             "요청일시": row["requested_at"],
         }
-        for row in res.data
+        for row in data
     ]
     return pd.DataFrame(rows, columns=[
         "id", "부품명(규격)", "material_id", "표준재고", "현재재고", "요청수량", "상태", "요청자",

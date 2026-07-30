@@ -559,7 +559,11 @@ if selected_page == "🛒 구매 요청":
         submitted = st.form_submit_button("요청 등록")
 
         if submitted:
-            if not requester_name:
+            # 자재가 하나도 등록돼 있지 않으면 위 선택칸이 비어서 selected_part가 None이 되고,
+            # 아래 자재 조회가 실패합니다. 그래서 먼저 안내 문구로 막아줍니다.
+            if not selected_part:
+                st.error("등록된 자재가 없습니다. 먼저 '➕ 자재 등록' 메뉴에서 자재를 등록해주세요.")
+            elif not requester_name:
                 st.error("요청자를 입력해주세요.")
             else:
                 material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
