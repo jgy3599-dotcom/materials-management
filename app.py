@@ -1,4 +1,5 @@
 import io
+import pandas as pd
 import streamlit as st
 from datetime import date
 from postgrest.exceptions import APIError
@@ -444,8 +445,17 @@ if selected_page == "🔧 사용(출고) 이력":
         else:
             narrowed = materials[materials["카테고리"] == selected_category]
 
-        # "자재 출처"는 이 자재를 어느 소속(보우/POSCO/한진 SPARE/한진 구매품/BEUMER)에서 썼는지 기록합니다.
-        MATERIAL_SOURCE_OPTIONS = ["보우", "POSCO", "한진 SPARE", "한진 구매품", "BEUMER", "직접 입력"]
+        # "자재 출처"는 이 자재를 어느 소속에서 썼는지 기록합니다. 값(True/False)은 그 출처를
+        # 썼을 때 우리 재고(current_qty)에서 차감할지 여부입니다(한진 소유 자재만 차감, 실무 확인 결과).
+        # 출처를 추가/변경할 때 이 한 곳만 고치면 선택지 목록과 재고 차감 여부가 같이 바뀝니다.
+        MATERIAL_SOURCES = {
+            "보우": False,
+            "POSCO": False,
+            "한진 SPARE": True,
+            "한진 구매품": True,
+            "BEUMER": False,
+        }
+        MATERIAL_SOURCE_OPTIONS = list(MATERIAL_SOURCES.keys()) + ["직접 입력"]
 
         with st.form("history_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
@@ -470,28 +480,31 @@ if selected_page == "🔧 사용(출고) 이력":
             submitted = st.form_submit_button("등록하기")
 
             if submitted:
-                material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
-                material_id = int(material_row["id"])
                 source = custom_source if source_choice == "직접 입력" else source_choice
 
-                # history 테이블에 이번 출고 기록을 추가합니다.
-                db.insert_history({
-                    "occurred_on": move_date.isoformat(), "direction": "출고",
-                    "material_id": material_id, "quantity": move_qty,
-                    "manager": source, "note": note or None,
-                    "equipment_id": equipment_id or None, "problem": problem or None,
-                    "action_taken": action_taken or None, "part_memo": part_memo or None,
-                })
+                if source_choice == "직접 입력" and not custom_source:
+                    st.error("자재 출처 '직접 입력'을 선택했으면 옆 칸에 출처를 입력해주세요.")
+                else:
+                    material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
+                    material_id = int(material_row["id"])
 
-                # 한진 소유 자재(SPARE/구매품)를 쓴 경우에만 현재재고를 차감하고 "수리 관리"에도
-                # 자동으로 등록합니다. 보우/POSCO/BEUMER 등 외부 소속 자재는 우리 재고가 아니라서
-                # 차감하지 않습니다(실무 확인 결과).
-                if source in ("한진 SPARE", "한진 구매품"):
-                    db.adjust_material_qty(material_id, -move_qty)
-                    db.insert_repair(material_id, move_qty, move_date.isoformat(), None, problem or None, None, note or None)
+                    # history 테이블에 이번 출고 기록을 추가합니다.
+                    db.insert_history({
+                        "occurred_on": move_date.isoformat(), "direction": "출고",
+                        "material_id": material_id, "quantity": move_qty,
+                        "manager": source, "note": note or None,
+                        "equipment_id": equipment_id or None, "problem": problem or None,
+                        "action_taken": action_taken or None, "part_memo": part_memo or None,
+                    })
 
-                st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
-                st.rerun()
+                    # 한진 소유 자재를 쓴 경우에만 현재재고를 차감하고 "수리 관리"에도 자동으로
+                    # 등록합니다. "직접 입력"은 MATERIAL_SOURCES에 없는 값이라 항상 차감되지 않습니다.
+                    if MATERIAL_SOURCES.get(source_choice, False):
+                        db.adjust_material_qty(material_id, -move_qty)
+                        db.insert_repair(material_id, move_qty, move_date.isoformat(), None, problem or None, None, note or None)
+
+                    st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
+                    st.rerun()
 
 # ---------- 구매 필요 알림 ----------
 if selected_page == "⚠️ 구매 필요 알림":
@@ -608,27 +621,38 @@ if selected_page == "🧰 수리 관리":
         repair_sent_qty = selected_repair.get("보낸수량")
         repair_returned_qty = selected_repair.get("반납수량")
         if repair_id:
+            # material_id가 없는 건(자재목록에 없는 부품, item_description으로만 기록된 수리 건)은
+            # 되돌려 더할 재고가 없으므로 반납 등록 시 재고 차감 없이 기록만 남깁니다.
+            has_linked_material = pd.notna(repair_material_id)
+            outstanding_qty = int(repair_sent_qty) - int(repair_returned_qty)
+
             st.divider()
             st.markdown(f"**'{repair_part_name}' 반납 등록** (보낸 수량 {repair_sent_qty}개 중 {repair_returned_qty}개 반납됨)")
 
-            with st.form("repair_return_form", clear_on_submit=True):
-                col1, col2 = st.columns(2)
-                with col1:
-                    return_qty = st.number_input("이번 반납 수량", min_value=1, step=1)
-                    return_on = st.date_input("반납일", value=date.today())
-                with col2:
-                    return_outcome = st.selectbox("결과", ["정상복귀", "폐기"])
-                return_note = st.text_input("비고", key="repair_return_note")
+            if outstanding_qty <= 0:
+                st.info("이미 전량 반납 처리되었습니다.")
+            else:
+                with st.form("repair_return_form", clear_on_submit=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        return_qty = st.number_input("이번 반납 수량", min_value=1, max_value=outstanding_qty, step=1)
+                        return_on = st.date_input("반납일", value=date.today())
+                    with col2:
+                        return_outcome = st.selectbox("결과", ["정상복귀", "폐기"])
+                    return_note = st.text_input("비고", key="repair_return_note")
 
-                return_submitted = st.form_submit_button("반납 등록")
+                    return_submitted = st.form_submit_button("반납 등록")
 
-                if return_submitted:
-                    db.insert_repair_return(int(repair_id), int(repair_material_id), return_qty, return_on.isoformat(), return_outcome, return_note)
-                    if return_outcome == "정상복귀":
-                        st.success(f"{return_qty}개 정상복귀 처리했습니다. 현재재고에 다시 더했습니다.")
-                    else:
-                        st.success(f"{return_qty}개 폐기 처리했습니다. 재고는 복구하지 않았습니다.")
-                    st.rerun()
+                    if return_submitted:
+                        return_material_id = int(repair_material_id) if has_linked_material else None
+                        db.insert_repair_return(int(repair_id), return_material_id, return_qty, return_on.isoformat(), return_outcome, return_note)
+                        if return_outcome == "정상복귀" and not has_linked_material:
+                            st.success(f"{return_qty}개 반납 처리했습니다. (자재목록에 없는 부품이라 재고에는 반영하지 않았습니다.)")
+                        elif return_outcome == "정상복귀":
+                            st.success(f"{return_qty}개 정상복귀 처리했습니다. 현재재고에 다시 더했습니다.")
+                        else:
+                            st.success(f"{return_qty}개 폐기 처리했습니다. 재고는 복구하지 않았습니다.")
+                        st.rerun()
 
             st.markdown("**반납 이력**")
             filterable_table(db.load_repair_returns(int(repair_id)), key="repair_returns_grid", height=200)

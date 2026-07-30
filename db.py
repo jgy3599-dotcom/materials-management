@@ -367,15 +367,21 @@ def load_purchase_history():
 @st.cache_data(ttl=15)
 def load_repairs():
     supabase = get_authed_client()
-    repairs_res = supabase.table("repairs").select("*, materials(part_name)").order("id", desc=True).execute()
-    returns_res = supabase.table("repair_returns").select("repair_id, returned_qty").execute()
+    repairs_res = _load_all_rows(
+        lambda: supabase.table("repairs").select("id", count="exact"),
+        lambda: supabase.table("repairs").select("*, materials(part_name)").order("id", desc=True),
+    )
+    returns_res = _load_all_rows(
+        lambda: supabase.table("repair_returns").select("id", count="exact"),
+        lambda: supabase.table("repair_returns").select("repair_id, returned_qty"),
+    )
 
     returned_by_repair = {}
-    for r in returns_res.data:
+    for r in returns_res:
         returned_by_repair[r["repair_id"]] = returned_by_repair.get(r["repair_id"], 0) + r["returned_qty"]
 
     rows = []
-    for row in repairs_res.data:
+    for row in repairs_res:
         sent_qty = row["quantity"]
         returned_qty = returned_by_repair.get(row["id"], 0)
         if returned_qty <= 0:
@@ -430,7 +436,8 @@ def insert_repair_return(repair_id, material_id, returned_qty, returned_on, outc
         "repair_id": repair_id, "returned_qty": returned_qty, "returned_on": returned_on,
         "outcome": outcome, "note": note or None,
     }).execute()
-    if outcome == "정상복귀":
+    # material_id가 없는 건(자재목록에 없는 부품)은 되돌려 더할 재고 자체가 없으므로 건너뜁니다.
+    if outcome == "정상복귀" and material_id is not None:
         adjust_material_qty(material_id, returned_qty)
     load_repairs.clear()
     load_repair_returns.clear()

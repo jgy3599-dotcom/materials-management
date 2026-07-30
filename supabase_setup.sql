@@ -113,12 +113,24 @@ create table audit_log (
 
 alter table audit_log enable row level security;
 
+-- 로그인한 사람이 최상위 권한자(현재는 gyjeong@hanjin.com 한 명)인지 확인합니다. 최상위 권한자
+-- 이메일이 바뀌거나 늘어날 때 이 함수 한 곳만 고치면 아래 모든 정책에 그대로 반영됩니다.
+create or replace function is_superadmin()
+returns boolean
+language sql
+stable
+as $$
+    select (auth.jwt() ->> 'email') = 'gyjeong@hanjin.com';
+$$;
+
+grant execute on function is_superadmin() to authenticated;
+
 -- 감사 로그는 로그인한 사람이면 누구나(자재 등록은 일반 계정도 가능하므로) 기록을 남길 수 있지만,
 -- 조회(select)는 지정된 한 사람만 볼 수 있도록 관리자보다 더 높은 권한으로 제한합니다.
 -- actor_email은 앱이 보내주는 값을 그대로 믿지 않고, 실제 로그인한 사람의 이메일과 같은지 DB에서 검증합니다
 -- (이게 없으면 API를 직접 호출해서 "내가 아닌 다른 사람이 한 것처럼" 로그를 위조할 수 있습니다).
 create policy "superadmin select audit_log" on audit_log
-    for select using ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
+    for select using (is_superadmin());
 create policy "authenticated insert audit_log" on audit_log
     for insert with check (
         auth.role() = 'authenticated'
@@ -154,13 +166,13 @@ alter table boq enable row level security;
 
 create policy "authenticated select boq" on boq
     for select using (auth.role() = 'authenticated');
--- BOQ 추가/삭제는 일반 관리자가 아니라 최상위 권한자(gyjeong@hanjin.com)만 가능합니다.
+-- BOQ 추가/삭제는 일반 관리자가 아니라 최상위 권한자(is_superadmin() 참고)만 가능합니다.
 create policy "superadmin insert boq" on boq
-    for insert with check ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
+    for insert with check (is_superadmin());
 create policy "admin update boq" on boq
     for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 create policy "superadmin delete boq" on boq
-    for delete using ((auth.jwt() ->> 'email') = 'gyjeong@hanjin.com');
+    for delete using (is_superadmin());
 
 -- BOQ를 컨베이어 ID로 검색할 때 띄어쓰기/대소문자를 무시하고 비교합니다.
 -- (예: "lm101bd001"이나 "LM101 BD001"이나 다 같은 걸로 찾아짐)
