@@ -177,10 +177,20 @@ def delete_material(material_id):
     load_materials.clear()
 
 
-def insert_history(data):
-    res = get_authed_client().table("history").insert(data).execute()
+# 사용(출고)을 등록합니다. 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성을
+# DB 함수 하나로 묶어서 처리합니다. 예전에는 이 셋을 파이썬에서 따로 호출해서, 중간에
+# 실패하면 이력만 남고 재고는 안 깎이는 어긋난 상태가 생길 수 있었습니다.
+def insert_usage(occurred_on, material_id, quantity, manager, note,
+                 equipment_id, problem, action_taken, part_memo, deduct_stock):
+    get_authed_client().rpc("register_usage", {
+        "p_occurred_on": occurred_on, "p_material_id": material_id, "p_quantity": quantity,
+        "p_manager": manager, "p_note": note, "p_equipment_id": equipment_id,
+        "p_problem": problem, "p_action_taken": action_taken, "p_part_memo": part_memo,
+        "p_deduct_stock": deduct_stock,
+    }).execute()
     load_history.clear()
-    return res.data[0]["id"]
+    load_materials.clear()
+    load_repairs.clear()
 
 
 # 현재재고를 delta만큼 더합니다(음수면 뺌). DB에 있는 값을 직접 기준으로 원자적으로 더하기 때문에,
@@ -301,42 +311,26 @@ def mark_purchasing(request_id, vendor, unit_price):
 
 
 # 입고 처리: 요청 상태를 '입고완료'로 바꾸고, 실제 재고에 반영하면서 구매이력에도 한 줄 남깁니다.
+# 셋이 DB 함수 하나로 묶여 있어 중간에 실패해도 일부만 반영되지 않습니다. 예전에는 재고만 늘고
+# 상태는 '구매중'으로 남을 수 있었는데, 그 상태에서 다시 입고 처리하면 재고가 두 번 늘었습니다.
 # 구매이력은 이후 이 구매요청이 삭제되더라도 지워지지 않고 그대로 남습니다.
 def receive_request(request_id, material_id, received_qty, vendor, unit_price):
-    adjust_material_qty(material_id, received_qty)
-
-    get_authed_client().table("purchase_history").insert({
-        "material_id": material_id,
-        "quantity": received_qty,
-        "vendor": vendor,
-        "unit_price": unit_price,
-        "received_on": date.today().isoformat(),
-        "request_id": request_id,
+    get_authed_client().rpc("receive_purchase_request", {
+        "p_request_id": request_id, "p_material_id": material_id,
+        "p_received_qty": received_qty, "p_vendor": vendor, "p_unit_price": unit_price,
+        "p_received_on": date.today().isoformat(),
     }).execute()
+    load_materials.clear()
     load_purchase_history.clear()
-
-    get_authed_client().table("purchase_requests").update({
-        "status": "입고완료", "received_at": _now(), "received_qty": received_qty,
-    }).eq("id", request_id).execute()
     load_purchase_requests.clear()
 
 
 # 구매요청을 삭제합니다. 이미 입고완료 상태였다면, 그때 반영했던 재고 증가분을 되돌립니다(원복).
 # 구매이력에 남긴 기록은 지우지 않고, 대신 취소일시만 채워서 나중에 취소된 구매라는 걸 알 수 있게 합니다.
 def delete_purchase_request(request_id):
-    res = get_authed_client().table("purchase_requests").select("*").eq("id", request_id).execute()
-    if not res.data:
-        return
-    row = res.data[0]
-
-    if row["status"] == "입고완료" and row.get("received_qty"):
-        adjust_material_qty(row["material_id"], -int(row["received_qty"]))
-        get_authed_client().table("purchase_history").update({
-            "reverted_at": _now(),
-        }).eq("request_id", request_id).execute()
-        load_purchase_history.clear()
-
-    get_authed_client().table("purchase_requests").delete().eq("id", request_id).execute()
+    get_authed_client().rpc("remove_purchase_request", {"p_request_id": request_id}).execute()
+    load_materials.clear()
+    load_purchase_history.clear()
     load_purchase_requests.clear()
 
 
@@ -423,26 +417,16 @@ def load_repair_returns(repair_id):
     return pd.DataFrame(rows, columns=["id", "반납수량", "반납일", "결과", "비고"])
 
 
-# 수리 건을 등록합니다. 사용(출고) 등록 시 자재출처가 한진 SPARE/한진 구매품이면 자동으로 같이
-# 호출되며, 재고는 이미 출고 등록 쪽에서 정상적으로 차감됐으므로 여기서는 다시 건드리지 않습니다.
-def insert_repair(material_id, quantity, sent_on, vendor, reason, expected_return_date, note):
-    get_authed_client().table("repairs").insert({
-        "material_id": material_id, "quantity": quantity, "sent_on": sent_on,
-        "vendor": vendor or None, "reason": reason or None,
-        "expected_return_date": expected_return_date, "note": note or None,
-    }).execute()
-    load_repairs.clear()
-
-
 # 수리 반납을 등록합니다. 한 수리 건에 여러 번 나눠서 걸릴 수 있어 회차별로 쌓입니다.
 # '정상복귀'인 만큼만 현재재고에 다시 더하고, '폐기'는 재고를 되돌리지 않습니다(그대로 소모 처리).
-def insert_repair_return(repair_id, material_id, returned_qty, returned_on, outcome, note):
-    get_authed_client().table("repair_returns").insert({
-        "repair_id": repair_id, "returned_qty": returned_qty, "returned_on": returned_on,
-        "outcome": outcome, "note": note or None,
+# 보낸 수량보다 많이 반납되지는 않는지도 DB가 직접 검증하고, 넘으면 오류를 냅니다. 예전에는
+# 화면의 입력 상한으로만 막아서, 두 사람이 동시에 넣거나 화면이 오래된 값을 들고 있으면 뚫렸습니다.
+# 어느 자재의 재고를 되돌릴지는 DB가 수리 건에서 직접 찾으므로 material_id를 넘기지 않습니다.
+def insert_repair_return(repair_id, returned_qty, returned_on, outcome, note):
+    get_authed_client().rpc("add_repair_return", {
+        "p_repair_id": repair_id, "p_returned_qty": returned_qty,
+        "p_returned_on": returned_on, "p_outcome": outcome, "p_note": note or None,
     }).execute()
-    # material_id가 없는 건(자재목록에 없는 부품)은 되돌려 더할 재고 자체가 없으므로 건너뜁니다.
-    if outcome == "정상복귀" and material_id is not None:
-        adjust_material_qty(material_id, returned_qty)
+    load_materials.clear()
     load_repairs.clear()
     load_repair_returns.clear()

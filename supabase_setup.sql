@@ -303,3 +303,158 @@ create policy "admin delete repair_returns" on repair_returns
     for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
 
 create index idx_repair_returns_repair_id on repair_returns (repair_id);
+
+-- ============================================================================
+-- 여러 테이블을 함께 바꾸는 작업을 SQL 함수 하나로 묶습니다.
+--
+-- 왜 필요한가: 예전에는 앱(파이썬)에서 "재고 바꾸기", "기록 남기기", "상태 바꾸기"를
+-- 각각 따로 호출했습니다. 그러면 중간에 네트워크가 끊기거나 오류가 났을 때 앞부분만
+-- 반영되고 뒷부분은 안 되는, 서로 어긋난 상태가 남습니다.
+-- (예: 재고는 늘었는데 상태는 아직 '구매중' → 다시 입고 처리하면 재고가 두 번 늘어남)
+--
+-- 함수 안의 문장들은 하나의 트랜잭션으로 처리되어 "전부 성공" 아니면 "전부 취소"가
+-- 보장되므로 이런 어긋난 상태가 생기지 않습니다.
+--
+-- security definer를 일부러 붙이지 않았습니다. 그래야 호출한 사람의 권한 그대로
+-- RLS 정책과 트리거 검사를 정상적으로 거칩니다.
+-- ============================================================================
+
+-- (1) 사용(출고) 등록: 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성.
+--     p_deduct_stock은 앱의 MATERIAL_SOURCES 판정 결과입니다(한진 SPARE/한진 구매품만 true).
+create or replace function register_usage(
+    p_occurred_on date,
+    p_material_id bigint,
+    p_quantity integer,
+    p_manager text,
+    p_note text,
+    p_equipment_id text,
+    p_problem text,
+    p_action_taken text,
+    p_part_memo text,
+    p_deduct_stock boolean
+) returns void
+language plpgsql
+as $$
+begin
+    insert into history (occurred_on, direction, material_id, quantity, manager, note,
+                         equipment_id, problem, action_taken, part_memo)
+    values (p_occurred_on, '출고', p_material_id, p_quantity, p_manager, p_note,
+            p_equipment_id, p_problem, p_action_taken, p_part_memo);
+
+    if p_deduct_stock then
+        update materials set current_qty = current_qty - p_quantity where id = p_material_id;
+
+        insert into repairs (material_id, quantity, sent_on, reason, note)
+        values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note);
+    end if;
+end;
+$$;
+
+-- (2) 입고 처리: 재고 증가 + 구매이력 기록 + 요청 상태를 '입고완료'로.
+--     입고일(p_received_on)은 앱이 쓰던 값을 그대로 받습니다(서버 시간대 차이로 날짜가
+--     하루 어긋나는 일이 없도록 DB의 current_date를 쓰지 않습니다).
+create or replace function receive_purchase_request(
+    p_request_id bigint,
+    p_material_id bigint,
+    p_received_qty integer,
+    p_vendor text,
+    p_unit_price numeric,
+    p_received_on date
+) returns void
+language plpgsql
+as $$
+begin
+    update materials set current_qty = current_qty + p_received_qty where id = p_material_id;
+
+    insert into purchase_history (material_id, quantity, vendor, unit_price, received_on, request_id)
+    values (p_material_id, p_received_qty, p_vendor, p_unit_price, p_received_on, p_request_id);
+
+    update purchase_requests
+       set status = '입고완료', received_at = now(), received_qty = p_received_qty
+     where id = p_request_id;
+end;
+$$;
+
+-- (3) 구매요청 삭제: 이미 입고완료였다면 재고를 원복하고 구매이력에 취소 표시를 남긴 뒤 삭제.
+--     purchase_history.request_id는 on delete set null이라 요청을 지우면 연결이 끊어집니다.
+--     그래서 reverted_at을 반드시 "삭제 전에" 채워야 어느 이력이 취소된 건지 찾을 수 있습니다.
+create or replace function remove_purchase_request(p_request_id bigint)
+returns void
+language plpgsql
+as $$
+declare
+    v_row purchase_requests;
+begin
+    select * into v_row from purchase_requests where id = p_request_id;
+    if not found then
+        return;
+    end if;
+
+    if v_row.status = '입고완료' and coalesce(v_row.received_qty, 0) > 0 then
+        update materials set current_qty = current_qty - v_row.received_qty
+         where id = v_row.material_id;
+
+        update purchase_history set reverted_at = now() where request_id = p_request_id;
+    end if;
+
+    delete from purchase_requests where id = p_request_id;
+end;
+$$;
+
+-- (4) 수리 반납 등록: 초과 반납 검증 + 반납 기록 + (정상복귀면) 재고 복구.
+--     앱의 입력칸 제한(max_value)은 화면에서만 막는 것이라, 두 사람이 거의 동시에 반납을
+--     넣거나 화면이 오래된 값을 들고 있으면 보낸 수량보다 많이 반납되어 재고가 부풀 수 있었습니다.
+--     여기서 DB가 직접 검증하므로 그 경로가 막힙니다.
+--     pg_advisory_xact_lock은 같은 수리 건에 대한 동시 호출을 줄 세워서, 두 요청이 동시에
+--     "아직 여유 있음"으로 판단하고 둘 다 통과하는 것을 막습니다. (repairs 행을 select ... for
+--     update로 잠그면 repairs의 UPDATE 정책이 걸려 일반 권한 사용자가 반납을 못 하게 되므로
+--     테이블을 건드리지 않는 advisory lock을 씁니다.)
+--     material_id가 없는 건(자재목록에 없는 부품)은 되돌려 더할 재고가 없어 기록만 남깁니다.
+create or replace function add_repair_return(
+    p_repair_id bigint,
+    p_returned_qty integer,
+    p_returned_on date,
+    p_outcome text,
+    p_note text
+) returns void
+language plpgsql
+as $$
+declare
+    v_material_id bigint;
+    v_sent_qty integer;
+    v_already integer;
+begin
+    perform pg_advisory_xact_lock(4001, p_repair_id::int);
+
+    if p_returned_qty <= 0 then
+        raise exception '반납 수량은 1개 이상이어야 합니다.';
+    end if;
+
+    select material_id, quantity into v_material_id, v_sent_qty
+      from repairs where id = p_repair_id;
+    if not found then
+        raise exception '수리 건을 찾을 수 없습니다. (id=%)', p_repair_id;
+    end if;
+
+    select coalesce(sum(returned_qty), 0) into v_already
+      from repair_returns where repair_id = p_repair_id;
+
+    if v_already + p_returned_qty > v_sent_qty then
+        raise exception '반납 수량이 보낸 수량을 초과합니다. 보낸 수량 %개, 이미 반납 %개, 이번 요청 %개',
+            v_sent_qty, v_already, p_returned_qty;
+    end if;
+
+    insert into repair_returns (repair_id, returned_qty, returned_on, outcome, note)
+    values (p_repair_id, p_returned_qty, p_returned_on, p_outcome, p_note);
+
+    if p_outcome = '정상복귀' and v_material_id is not null then
+        update materials set current_qty = current_qty + p_returned_qty
+         where id = v_material_id;
+    end if;
+end;
+$$;
+
+grant execute on function register_usage(date, bigint, integer, text, text, text, text, text, text, boolean) to authenticated;
+grant execute on function receive_purchase_request(bigint, bigint, integer, text, numeric, date) to authenticated;
+grant execute on function remove_purchase_request(bigint) to authenticated;
+grant execute on function add_repair_return(bigint, integer, date, text, text) to authenticated;
