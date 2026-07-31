@@ -141,13 +141,16 @@ def main():
     elif h_seq["ms"]:
         print(f"  병렬은 실패, 순차는 {h_seq['ms']:.0f} ms에 성공했습니다.")
 
-    base = h_seq["ms"] or h_par["ms"]
-    if base and m_seq["ms"] and m_cnt["ms"] and boq["ms"] and h_one["ms"]:
-        now = m_seq["ms"] + boq["ms"] + base
+    # '지금'은 앱이 실제로 쓰는 방식(병렬)으로 계산해야 합니다. 순차 값을 쓰면 개선폭이
+    # 실제보다 부풀려집니다. 병렬이 실패했을 때만 순차 값으로 대신합니다.
+    base = h_par["ms"] or h_seq["ms"]
+    mat_now = m_par["ms"] or m_seq["ms"]
+    if base and mat_now and m_cnt["ms"] and boq["ms"] and h_one["ms"]:
+        now = mat_now + boq["ms"] + base
         after = m_cnt["ms"] + boq["ms"] + h_one["ms"]
         print(f"\n  BOQ 검색 화면 한 번 여는 비용 (캐시가 비어있을 때)")
-        print(f"    지금      {now:>7.0f} ms  = 자재 {m_seq['ms']:.0f} + BOQ {boq['ms']:.0f} + 이력전체 {base:.0f}")
-        print(f"    개선 후   {after:>7.0f} ms  = 건수 {m_cnt['ms']:.0f} + BOQ {boq['ms']:.0f} + 이력1건 {h_one['ms']:.0f}")
+        print(f"    지금      {now:>7.0f} ms  = 자재 {mat_now:.0f} + BOQ {boq['ms']:.0f} + 이력전체 {base:.0f}")
+        print(f"    개선 후   {after:>7.0f} ms  = 요약 {m_cnt['ms']:.0f} + BOQ {boq['ms']:.0f} + 이력1건 {h_one['ms']:.0f}")
         print(f"    → {now / after:.1f}배 빨라짐 (약 {now - after:.0f} ms 절약)")
 
     print("\n  ※ 여기 값은 '서버에서 데이터를 가져오는 시간'입니다.")
