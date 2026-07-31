@@ -1,3 +1,6 @@
+import time
+
+import httpx
 import streamlit as st
 import pandas as pd
 from concurrent.futures import ThreadPoolExecutor
@@ -84,8 +87,18 @@ def _load_all_rows(count_query_builder, data_query_builder, page_size=1000):
         return []
     starts = range(0, total, page_size)
 
+    # 여러 페이지를 동시에 가져오는데, supabase 클라이언트가 HTTP/2를 쓰기 때문에 이 요청들이
+    # TCP 연결 하나를 같이 씁니다. 그래서 드물게 그 연결에서 읽기가 겹쳐 오류가 납니다
+    # (윈도우에서 WinError 10035 등). 연결 문제라 잠깐 쉬었다 다시 하면 대개 성공하므로,
+    # 통신 오류일 때만 두 번까지 다시 시도합니다. 권한 오류 같은 건 그대로 올려보냅니다.
     def fetch_page(start):
-        return data_query_builder().range(start, start + page_size - 1).execute().data
+        for attempt in range(3):
+            try:
+                return data_query_builder().range(start, start + page_size - 1).execute().data
+            except httpx.HTTPError:
+                if attempt == 2:
+                    raise
+                time.sleep(0.2 * (attempt + 1))
 
     with ThreadPoolExecutor(max_workers=len(starts)) as executor:
         pages = executor.map(fetch_page, starts)
@@ -137,6 +150,45 @@ def load_history():
     return pd.DataFrame(rows, columns=["일자", "구분", "부품명(규격)", "수량", "자재 출처", "설비ID", "문제", "조치", "부품메모", "비고"])
 
 
+# 화면 맨 위 요약 카드에 쓰는 숫자 3개(전체 자재/카테고리 수/구매 필요)만 DB에서 세어 옵니다.
+# 예전에는 이 숫자를 얻으려고 자재 목록 전체(1,200건 이상)를 매 페이지마다 받아왔는데,
+# 정작 자재 목록이 필요 없는 화면(수리 관리, BOQ 검색)에서도 그러느라 낭비가 컸습니다.
+@st.cache_data(ttl=60)
+def load_dashboard_summary():
+    res = get_authed_client().rpc("dashboard_summary", {}).execute()
+    row = res.data[0] if res.data else {}
+    return {
+        "total": row.get("total") or 0,
+        "categories": row.get("categories") or 0,
+        "need_purchase": row.get("need_purchase") or 0,
+    }
+
+
+# 설비 하나의 교체(사용) 이력만 가져옵니다. BOQ 검색에서 씁니다.
+# 예전에는 load_history()로 이력 전체(4천여 건)를 받아와 파이썬에서 걸러냈는데, 그 설비
+# 것만 DB에서 바로 뽑으면 훨씬 빠릅니다(측정값 550ms -> 106ms). history.equipment_id에
+# 인덱스가 걸려 있어야 제 속도가 납니다(supabase_setup.sql 참고).
+@st.cache_data(ttl=60)
+def load_equipment_history(equipment_id):
+    res = get_authed_client().table("history").select(
+        "*, materials(part_name)"
+    ).eq("equipment_id", equipment_id).eq("direction", "출고").order("occurred_on", desc=True).execute()
+    rows = [
+        {
+            "일자": row["occurred_on"],
+            "부품명(규격)": row["materials"]["part_name"] if row.get("materials") else None,
+            "수량": row["quantity"],
+            "자재 출처": row["manager"],
+            "문제": row["problem"],
+            "조치": row["action_taken"],
+            "부품메모": row["part_memo"],
+            "비고": row["note"],
+        }
+        for row in res.data
+    ]
+    return pd.DataFrame(rows, columns=["일자", "부품명(규격)", "수량", "자재 출처", "문제", "조치", "부품메모", "비고"])
+
+
 # 컨베이어 ID로 BOQ(설비 설계 사양) 한 건을 찾습니다. "LM101 BD001"처럼 PLC 그룹 없는 형태와
 # "CC101 LM101 BD001"처럼 PLC 그룹 포함된 형태 둘 다로 검색할 수 있고, 띄어쓰기/대소문자도 무시됩니다.
 # (실제 비교는 DB의 find_boq 함수가 담당합니다.)
@@ -156,9 +208,22 @@ def with_구매필요(df):
     return result
 
 
+# 자재가 바뀌면 자재 목록뿐 아니라 맨 위 요약 카드 숫자도 다시 세야 합니다.
+# 마찬가지로 이력이 바뀌면 설비별 이력도 다시 읽어야 합니다. 지울 캐시를 한 곳에 모아둬서,
+# 나중에 캐시를 추가할 때 여기저기 빠뜨리는 일이 없게 합니다.
+def _clear_material_caches():
+    load_materials.clear()
+    load_dashboard_summary.clear()
+
+
+def _clear_history_caches():
+    load_history.clear()
+    load_equipment_history.clear()
+
+
 def insert_material(data):
     res = get_authed_client().table("materials").insert(data).execute()
-    load_materials.clear()
+    _clear_material_caches()
     return res.data[0]["id"]
 
 
@@ -169,12 +234,12 @@ def get_material(material_id):
 
 def update_material(material_id, data):
     get_authed_client().table("materials").update(data).eq("id", material_id).execute()
-    load_materials.clear()
+    _clear_material_caches()
 
 
 def delete_material(material_id):
     get_authed_client().table("materials").delete().eq("id", material_id).execute()
-    load_materials.clear()
+    _clear_material_caches()
 
 
 # 사용(출고)을 등록합니다. 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성을
@@ -188,8 +253,8 @@ def insert_usage(occurred_on, material_id, quantity, manager, note,
         "p_problem": problem, "p_action_taken": action_taken, "p_part_memo": part_memo,
         "p_deduct_stock": deduct_stock,
     }).execute()
-    load_history.clear()
-    load_materials.clear()
+    _clear_history_caches()
+    _clear_material_caches()
     load_repairs.clear()
 
 
@@ -197,7 +262,7 @@ def insert_usage(occurred_on, material_id, quantity, manager, note,
 # 먼저 값을 읽어와서 계산 후 다시 쓰는 방식과 달리 동시 편집으로 값이 덮어써질 위험이 없습니다.
 def adjust_material_qty(material_id, delta):
     get_authed_client().rpc("adjust_material_qty", {"p_material_id": material_id, "p_delta": delta}).execute()
-    load_materials.clear()
+    _clear_material_caches()
 
 
 # 관리자가 자재를 수정/삭제할 때마다 남기는 감사 로그입니다.
@@ -320,7 +385,7 @@ def receive_request(request_id, material_id, received_qty, vendor, unit_price):
         "p_received_qty": received_qty, "p_vendor": vendor, "p_unit_price": unit_price,
         "p_received_on": date.today().isoformat(),
     }).execute()
-    load_materials.clear()
+    _clear_material_caches()
     load_purchase_history.clear()
     load_purchase_requests.clear()
 
@@ -329,7 +394,7 @@ def receive_request(request_id, material_id, received_qty, vendor, unit_price):
 # 구매이력에 남긴 기록은 지우지 않고, 대신 취소일시만 채워서 나중에 취소된 구매라는 걸 알 수 있게 합니다.
 def delete_purchase_request(request_id):
     get_authed_client().rpc("remove_purchase_request", {"p_request_id": request_id}).execute()
-    load_materials.clear()
+    _clear_material_caches()
     load_purchase_history.clear()
     load_purchase_requests.clear()
 
@@ -427,6 +492,6 @@ def insert_repair_return(repair_id, returned_qty, returned_on, outcome, note):
         "p_repair_id": repair_id, "p_returned_qty": returned_qty,
         "p_returned_on": returned_on, "p_outcome": outcome, "p_note": note or None,
     }).execute()
-    load_materials.clear()
+    _clear_material_caches()
     load_repairs.clear()
     load_repair_returns.clear()

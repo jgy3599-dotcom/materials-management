@@ -302,32 +302,32 @@ auth.render_sidebar()
 st.title("📦 자재관리 시스템")
 st.caption("설비 자재 재고, 입출고 이력, 구매 요청을 한 곳에서 관리합니다.")
 
-# 자재 목록은 탭에 안 들어가도 상단 알림에 필요해서 항상 불러옵니다. 이력(history_df)은 실제로
-# 쓰는 탭(사용이력/구매요청)이 열려있을 때만 불러오도록, 각 탭 안에서 필요할 때 불러옵니다.
-materials_df = db.load_materials()
-_materials_for_alert = db.with_구매필요(materials_df)
-_need_purchase_count = int((_materials_for_alert["구매필요"] > 0).sum())
+# 요약 카드에 쓸 숫자 3개만 DB에서 세어옵니다. 예전에는 이 숫자를 얻으려고 자재 목록
+# 전체(1,200건 이상)를 어느 페이지에서든 매번 받아왔는데, 자재 목록이 필요 없는 화면
+# (수리 관리, BOQ 검색)에서도 그러느라 낭비였습니다. 자재 목록 자체는 실제로 쓰는
+# 페이지 안에서 그때그때 불러옵니다.
+summary = db.load_dashboard_summary()
 
-# 탭에 들어가지 않아도 전체 현황을 한눈에 볼 수 있도록, 요약 수치를 카드 형태로 한 줄에 띄워둡니다.
+# 어느 페이지에 있든 전체 현황을 한눈에 볼 수 있도록, 요약 수치를 카드 형태로 한 줄에 띄워둡니다.
 with st.container(horizontal=True):
-    st.metric(":material/inventory_2: 전체 자재", f"{len(materials_df)}건", border=True)
-    st.metric(":material/category: 카테고리", f"{materials_df['카테고리'].nunique()}개", border=True)
+    st.metric(":material/inventory_2: 전체 자재", f"{summary['total']}건", border=True)
+    st.metric(":material/category: 카테고리", f"{summary['categories']}개", border=True)
     st.metric(
-        ":material/shopping_cart: 구매 필요", f"{_need_purchase_count}건", border=True,
-        delta=f"확인 필요" if _need_purchase_count > 0 else None, delta_color="inverse",
+        ":material/shopping_cart: 구매 필요", f"{summary['need_purchase']}건", border=True,
+        delta="확인 필요" if summary["need_purchase"] > 0 else None, delta_color="inverse",
     )
 
-if _need_purchase_count > 0:
-    st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{_need_purchase_count}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
+if summary["need_purchase"] > 0:
+    st.warning(f"⚠️ 표준재고보다 부족한 자재가 **{summary['need_purchase']}건** 있습니다. '⚠️ 구매 필요 알림' 탭에서 확인하세요.")
 
 st.divider()
 
 # ---------- 자재 목록 ----------
 if selected_page == "📋 자재 목록":
     st.subheader("전체 자재 목록")
-    materials = materials_df
+    materials = db.load_materials()
     # AgGrid는 엑셀처럼 컬럼 제목 아래에 필터 검색창이 붙는 표 컴포넌트입니다.
-    filtered_materials = filterable_table(_materials_for_alert, key="materials_grid")
+    filtered_materials = filterable_table(db.with_구매필요(materials), key="materials_grid")
     st.caption(f"총 {len(materials)}건의 자재가 등록되어 있습니다.")
     excel_download_button(filtered_materials, "자재목록.xlsx", key="dl_materials")
 
@@ -388,7 +388,7 @@ if selected_page == "➕ 자재 등록":
     # 기존에 등록된 카테고리 목록을 뽑아서 선택지로 만듭니다. 새 카테고리가 오타로 잘못
     # 생기는 걸 막기 위해, "직접 입력" 옵션은 관리자에게만 보여줍니다.
     NEW_CATEGORY_OPTION = "➕ 새 카테고리 직접 입력"
-    existing_categories = sorted(materials_df["카테고리"].dropna().unique().tolist())
+    existing_categories = sorted(db.load_materials()["카테고리"].dropna().unique().tolist())
     category_options = existing_categories + [NEW_CATEGORY_OPTION] if st.session_state.role == "관리자" else existing_categories
 
     # 카테고리 선택은 form 밖에 둬야, 고를 때마다 바로바로 아래 "새 카테고리명" 입력칸이
@@ -464,7 +464,7 @@ if selected_page == "🔧 사용(출고) 이력":
 
     st.divider()
     st.subheader("출고 등록")
-    materials = materials_df
+    materials = db.load_materials()
 
     if materials.empty:
         st.info("먼저 '자재 등록' 메뉴에서 자재를 하나 이상 등록해주세요.")
@@ -542,7 +542,8 @@ if selected_page == "🔧 사용(출고) 이력":
 # ---------- 구매 필요 알림 ----------
 if selected_page == "⚠️ 구매 필요 알림":
     st.subheader("구매가 필요한 자재")
-    need_purchase = _materials_for_alert[_materials_for_alert["구매필요"] > 0].copy()
+    materials_for_alert = db.with_구매필요(db.load_materials())
+    need_purchase = materials_for_alert[materials_for_alert["구매필요"] > 0].copy()
     # 부족한 정도가 큰 자재부터 위에 보이도록 정렬합니다.
     need_purchase = need_purchase.sort_values("구매필요", ascending=False)
 
@@ -573,7 +574,7 @@ if selected_page == "⚠️ 구매 필요 알림":
 # ---------- 구매 요청 ----------
 if selected_page == "🛒 구매 요청":
     st.subheader("새 구매 요청")
-    materials_for_request = materials_df
+    materials_for_request = db.load_materials()
 
     category_list = ["전체"] + sorted(materials_for_request["카테고리"].dropna().unique().tolist())
     selected_category = st.selectbox("카테고리로 먼저 좁히기", category_list, key="pr_category")
@@ -730,11 +731,9 @@ if selected_page == "🔎 BOQ 검색":
 
         st.divider()
         st.markdown("**교체(사용) 이력**")
-        # 이미 불러온 history_df를 그대로 필터링합니다 (DB에 따로 다시 조회하지 않습니다).
-        history_df = db.load_history()
-        equipment_history = history_df[
-            (history_df["설비ID"] == equipment_id_for_history) & (history_df["구분"] == "출고")
-        ][["일자", "부품명(규격)", "수량", "자재 출처", "문제", "조치", "부품메모", "비고"]].sort_values("일자", ascending=False)
+        # 이 설비의 이력만 DB에서 바로 가져옵니다. 예전에는 이력 전체(4천여 건)를 받아와
+        # 파이썬에서 걸러냈는데, 정작 쓰는 건 몇 건뿐이라 낭비가 컸습니다(550ms -> 106ms).
+        equipment_history = db.load_equipment_history(equipment_id_for_history)
         if equipment_history.empty:
             st.info("이 설비의 교체 이력이 없습니다.")
         else:

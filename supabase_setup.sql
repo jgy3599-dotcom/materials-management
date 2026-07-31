@@ -454,6 +454,34 @@ begin
 end;
 $$;
 
+-- ============================================================================
+-- 속도 개선용 (2026-07-31 측정 결과에 따라 추가)
+-- ============================================================================
+
+-- 화면 맨 위 요약 카드에 쓰는 숫자 3개를 DB에서 한 번에 셉니다.
+-- 예전에는 자재 전체(1,200건 이상)를 받아와 파이썬에서 셌는데, 어느 페이지를 열든
+-- 매번 그러다 보니 284ms를 먼저 쓰고 시작했습니다. 이 함수로는 80ms 정도면 됩니다.
+-- '구매 필요' 판정은 앱과 똑같이 맞춥니다: standard_qty > current_qty.
+-- (coalesce를 일부러 안 씁니다. 둘 중 하나가 비어 있으면 비교 결과가 NULL이 되어
+--  세지 않는데, 파이썬에서 계산하던 기존 동작과 같습니다.)
+create or replace function dashboard_summary()
+returns table(total bigint, categories bigint, need_purchase bigint)
+language sql
+stable
+as $$
+    select count(*),
+           count(distinct category),
+           count(*) filter (where standard_qty > current_qty)
+    from materials;
+$$;
+
+grant execute on function dashboard_summary() to authenticated;
+
+-- BOQ 검색에서 설비 하나의 교체 이력만 뽑을 때 씁니다. 이 인덱스가 없으면 이력 전체를
+-- 훑어야 합니다. 예전에는 아예 4,246건을 앱으로 다 받아와서 걸렀는데(550ms),
+-- 이제 그 설비 것만 DB에서 바로 가져옵니다(106ms).
+create index if not exists idx_history_equipment_id on history (equipment_id);
+
 grant execute on function register_usage(date, bigint, integer, text, text, text, text, text, text, boolean) to authenticated;
 grant execute on function receive_purchase_request(bigint, bigint, integer, text, numeric, date) to authenticated;
 grant execute on function remove_purchase_request(bigint) to authenticated;
