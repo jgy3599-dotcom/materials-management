@@ -94,6 +94,23 @@ def excel_download_button(df, file_name, key):
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key=key,
     )
 
+
+# DB 작업을 대신 실행해주고, 실패하면 파이썬 오류 화면(빨간 스택 트레이스) 대신
+# 사람이 읽을 수 있는 안내 문구를 띄웁니다. 성공하면 True, 실패하면 False를 돌려주므로
+# "성공했을 때만 성공 메시지를 띄우고 화면을 새로 그리는" 식으로 쓸 수 있습니다.
+# action에는 실제 DB 호출을 담은 함수(보통 lambda)를 넘깁니다.
+def run_db(action, error_message):
+    try:
+        action()
+        return True
+    except APIError as e:
+        # 권한 부족, 제약 위반, DB 함수가 낸 오류(예: 초과 반납) 등이 여기로 옵니다.
+        st.error(f"{error_message}\n\n(DB 응답: {e.message})")
+    except Exception as e:
+        # 네트워크 끊김처럼 DB까지 가지도 못한 경우입니다.
+        st.error(f"{error_message}\n\n({e})")
+    return False
+
 # 웹 브라우저 탭 제목과 화면 전체 너비를 설정합니다.
 st.set_page_config(page_title="자재관리 시스템", layout="wide")
 
@@ -141,31 +158,44 @@ def edit_material_dialog(material_id):
                     "standard_qty": standard_qty, "note": note,
                     "warehouse_no": warehouse_no or None, "order_code": order_code or None,
                 }
-                db.update_material(material_id, after_data)
+                def save_material():
+                    db.update_material(material_id, after_data)
 
-                # 현재재고는 다른 필드처럼 그냥 덮어쓰지 않고, "이 화면 열었을 때 값 대비 얼마나 바뀌었는지"를
-                # 계산해서 그 차이만큼만 더합니다. 그래야 이 폼이 열려있는 동안 출고/입고로 재고가
-                # 이미 바뀌었어도, 그 변화를 덮어써서 없애버리지 않고 관리자의 수정 의도(±차이)만 반영됩니다.
-                qty_delta = current_qty - int(row["current_qty"] or 0)
-                if qty_delta != 0:
-                    db.adjust_material_qty(material_id, qty_delta)
+                    # 현재재고는 다른 필드처럼 그냥 덮어쓰지 않고, "이 화면 열었을 때 값 대비 얼마나 바뀌었는지"를
+                    # 계산해서 그 차이만큼만 더합니다. 그래야 이 폼이 열려있는 동안 출고/입고로 재고가
+                    # 이미 바뀌었어도, 그 변화를 덮어써서 없애버리지 않고 관리자의 수정 의도(±차이)만 반영됩니다.
+                    qty_delta = current_qty - int(row["current_qty"] or 0)
+                    if qty_delta != 0:
+                        db.adjust_material_qty(material_id, qty_delta)
 
-                db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, {**after_data, "current_qty": current_qty})
-                st.success(f"'{part}' 자재가 수정되었습니다.")
-                st.rerun()
+                    db.insert_audit_log(st.session_state.user_email, "update", material_id, part, row, {**after_data, "current_qty": current_qty})
+
+                if run_db(save_material, "자재 수정에 실패했습니다."):
+                    st.success(f"'{part}' 자재가 수정되었습니다.")
+                    st.rerun()
 
         if close_clicked:
             st.rerun()
 
         if delete_clicked:
-            try:
+            def remove_material():
                 db.delete_material(material_id)
                 db.insert_audit_log(st.session_state.user_email, "delete", material_id, row["part_name"], row)
+
+            # 이 자재를 참조하는 입출고 이력이 남아있으면 삭제가 거부됩니다(23503 = 참조 위반).
+            # 그 경우에만 이유를 짚어주고, 권한 문제 같은 다른 오류까지 같은 문구로 뭉뚱그리지 않습니다.
+            try:
+                remove_material()
+            except APIError as e:
+                if e.code == "23503":
+                    st.error("이 자재는 입출고 이력이 남아있어 삭제할 수 없습니다. 이력을 먼저 정리해주세요.")
+                else:
+                    st.error(f"자재 삭제에 실패했습니다.\n\n(DB 응답: {e.message})")
+            except Exception as e:
+                st.error(f"자재 삭제에 실패했습니다.\n\n({e})")
+            else:
                 st.success(f"'{row['part_name']}' 자재가 삭제되었습니다.")
                 st.rerun()
-            except APIError:
-                # 이 자재를 참조하는 입출고 이력이 남아있으면 삭제가 거부됩니다.
-                st.error("이 자재는 입출고 이력이 남아있어 삭제할 수 없습니다. 이력을 먼저 정리해주세요.")
 
 # 구매 요청 하나를 다음 단계로 진행시키는 팝업창입니다. 관리자 전용입니다.
 # 요청의 현재 상태에 따라 보여주는 버튼/입력칸이 달라집니다.
@@ -185,8 +215,8 @@ def purchase_request_dialog(request_id):
 
     if status == "요청됨":
         if st.button("검토 시작", use_container_width=True):
-            db.start_review(request_id)
-            st.rerun()
+            if run_db(lambda: db.start_review(request_id), "검토 시작 처리에 실패했습니다."):
+                st.rerun()
 
     elif status == "검토중":
         # 재고를 확인해보니 실제로 필요한 수량이 다를 수 있어서, 승인 시점에 수량을 고칠 수 있게 합니다.
@@ -194,15 +224,14 @@ def purchase_request_dialog(request_id):
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✅ 승인", use_container_width=True):
-                db.approve_request(request_id, reviewed_qty)
-                st.rerun()
+                if run_db(lambda: db.approve_request(request_id, reviewed_qty), "승인 처리에 실패했습니다."):
+                    st.rerun()
         with col2:
             reject_reason = st.text_input("반려 사유")
             if st.button("❌ 반려", use_container_width=True):
                 if not reject_reason:
                     st.error("반려 사유를 입력해주세요.")
-                else:
-                    db.reject_request(request_id, reject_reason)
+                elif run_db(lambda: db.reject_request(request_id, reject_reason), "반려 처리에 실패했습니다."):
                     st.rerun()
 
     elif status == "승인됨":
@@ -213,8 +242,7 @@ def purchase_request_dialog(request_id):
             if submitted:
                 if not vendor:
                     st.error("거래업체를 입력해주세요.")
-                else:
-                    db.mark_purchasing(request_id, vendor, unit_price)
+                elif run_db(lambda: db.mark_purchasing(request_id, vendor, unit_price), "구매 처리에 실패했습니다."):
                     st.rerun()
 
     elif status == "구매중":
@@ -222,9 +250,12 @@ def purchase_request_dialog(request_id):
             received_qty = st.number_input("입고 수량", min_value=1, step=1, value=int(row["요청수량"]))
             submitted = st.form_submit_button("입고 처리 (재고 반영)")
             if submitted:
-                db.receive_request(request_id, int(row["material_id"]), received_qty, row["거래업체"], row["단가"])
-                st.success("입고 처리 완료, 현재재고에 반영되었습니다.")
-                st.rerun()
+                if run_db(
+                    lambda: db.receive_request(request_id, int(row["material_id"]), received_qty, row["거래업체"], row["단가"]),
+                    "입고 처리에 실패했습니다.",
+                ):
+                    st.success("입고 처리 완료, 현재재고에 반영되었습니다.")
+                    st.rerun()
 
     else:
         st.info("이미 종료된 요청입니다 (입고완료 또는 반려됨).")
@@ -237,9 +268,9 @@ def purchase_request_dialog(request_id):
             st.caption("아직 입고 전이라 재고에는 영향이 없습니다.")
         confirm = st.checkbox("삭제하겠습니다", key=f"confirm_delete_pr_{request_id}")
         if st.button("삭제", type="primary", disabled=not confirm):
-            db.delete_purchase_request(request_id)
-            st.success("삭제했습니다.")
-            st.rerun()
+            if run_db(lambda: db.delete_purchase_request(request_id), "구매요청 삭제에 실패했습니다."):
+                st.success("삭제했습니다.")
+                st.rerun()
 
 auth.check_login()
 
@@ -401,10 +432,13 @@ if selected_page == "➕ 자재 등록":
                     "standard_qty": standard_qty, "current_qty": current_qty, "note": note,
                     "warehouse_no": warehouse_no or None, "order_code": order_code or None,
                 }
-                new_material_id = db.insert_material(new_data)
-                db.insert_audit_log(st.session_state.user_email, "insert", new_material_id, part, None, new_data)
-                st.success(f"'{part}' 자재가 등록되었습니다.")
-                st.rerun()
+                def register_material():
+                    new_material_id = db.insert_material(new_data)
+                    db.insert_audit_log(st.session_state.user_email, "insert", new_material_id, part, None, new_data)
+
+                if run_db(register_material, "자재 등록에 실패했습니다."):
+                    st.success(f"'{part}' 자재가 등록되었습니다.")
+                    st.rerun()
 
 # ---------- 사용(출고) 이력 ----------
 # 입고(구매) 이력은 '🛒 구매 요청' 메뉴에서 따로 관리합니다. 여기는 설비 교체 등으로
@@ -492,16 +526,18 @@ if selected_page == "🔧 사용(출고) 이력":
                     # 한 번에 처리합니다. 셋이 DB 함수 하나로 묶여 있어서, 중간에 실패해도 이력만
                     # 남고 재고는 그대로인 어긋난 상태가 생기지 않습니다.
                     # "직접 입력"은 MATERIAL_SOURCES에 없는 값이라 항상 차감되지 않습니다.
-                    db.insert_usage(
-                        occurred_on=move_date.isoformat(), material_id=material_id,
-                        quantity=move_qty, manager=source, note=note or None,
-                        equipment_id=equipment_id or None, problem=problem or None,
-                        action_taken=action_taken or None, part_memo=part_memo or None,
-                        deduct_stock=MATERIAL_SOURCES.get(source_choice, False),
-                    )
-
-                    st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
-                    st.rerun()
+                    if run_db(
+                        lambda: db.insert_usage(
+                            occurred_on=move_date.isoformat(), material_id=material_id,
+                            quantity=move_qty, manager=source, note=note or None,
+                            equipment_id=equipment_id or None, problem=problem or None,
+                            action_taken=action_taken or None, part_memo=part_memo or None,
+                            deduct_stock=MATERIAL_SOURCES.get(source_choice, False),
+                        ),
+                        "출고 등록에 실패했습니다.",
+                    ):
+                        st.success(f"'{selected_part}' 출고 {move_qty}건이 등록되었습니다.")
+                        st.rerun()
 
 # ---------- 구매 필요 알림 ----------
 if selected_page == "⚠️ 구매 필요 알림":
@@ -565,13 +601,22 @@ if selected_page == "🛒 구매 요청":
             else:
                 material_row = narrowed[narrowed["부품명(규격)"] == selected_part].iloc[0]
                 material_id = int(material_row["id"])
-                open_count = db.count_open_requests_for_material(material_id)
-                db.insert_purchase_request(material_id, requested_qty, requester_name, request_note)
-                if open_count > 0:
-                    st.warning(f"⚠️ '{selected_part}'에 이미 진행 중인 구매요청이 {open_count}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.")
-                else:
-                    st.success(f"'{selected_part}' 구매요청이 등록되었습니다.")
-                st.rerun()
+
+                # 조회와 등록을 한 함수에 담아 오류 처리를 한 번에 합니다. 함수 안에서 센 결과를
+                # 밖으로 꺼내오려고 리스트에 담아둡니다(그냥 변수에 넣으면 함수 안에서만 바뀝니다).
+                open_counts = []
+
+                def register_request():
+                    # 중복 요청 경고에 쓸 건수는 등록 전에 세어둡니다(등록하고 나면 1건 늘어나므로).
+                    open_counts.append(db.count_open_requests_for_material(material_id))
+                    db.insert_purchase_request(material_id, requested_qty, requester_name, request_note)
+
+                if run_db(register_request, "구매요청 등록에 실패했습니다."):
+                    if open_counts[0] > 0:
+                        st.warning(f"⚠️ '{selected_part}'에 이미 진행 중인 구매요청이 {open_count}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.")
+                    else:
+                        st.success(f"'{selected_part}' 구매요청이 등록되었습니다.")
+                    st.rerun()
 
     st.divider()
     st.subheader("구매 요청 목록")
@@ -646,12 +691,11 @@ if selected_page == "🧰 수리 관리":
 
                     if return_submitted:
                         # 어느 자재의 재고를 되돌릴지는 DB가 수리 건에서 직접 찾습니다.
-                        # 보낸 수량을 넘겨 반납하려 하면 DB가 거부하므로, 그 안내를 그대로 보여줍니다.
-                        try:
-                            db.insert_repair_return(int(repair_id), return_qty, return_on.isoformat(), return_outcome, return_note)
-                        except APIError as e:
-                            st.error(f"반납 등록에 실패했습니다.\n\n{e.message}")
-                        else:
+                        # 보낸 수량을 넘겨 반납하려 하면 DB가 거부하고, 그 안내가 그대로 표시됩니다.
+                        if run_db(
+                            lambda: db.insert_repair_return(int(repair_id), return_qty, return_on.isoformat(), return_outcome, return_note),
+                            "반납 등록에 실패했습니다.",
+                        ):
                             if return_outcome == "정상복귀" and not has_linked_material:
                                 st.success(f"{return_qty}개 반납 처리했습니다. (자재목록에 없는 부품이라 재고에는 반영하지 않았습니다.)")
                             elif return_outcome == "정상복귀":
