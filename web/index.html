@@ -23,7 +23,7 @@
     <!-- 로그인 화면 -->
     <div id="login-view" class="center-screen hidden">
         <div class="login-box">
-            <h1>📦 자재관리 시스템</h1>
+            <h1>자재관리 시스템</h1>
             <p class="caption">설비 자재 재고, 입출고 이력, 구매 요청을 한 곳에서 관리합니다.</p>
 
             <form id="login-form">
@@ -43,7 +43,7 @@
     <!-- 로그인한 뒤 보이는 앱 화면 -->
     <div id="app-view" class="hidden">
         <header class="topbar">
-            <div class="brand">📦 자재관리 시스템</div>
+            <div class="brand">자재관리 시스템</div>
             <div class="user">
                 <span id="user-email"></span>
                 <span class="badge" id="user-role"></span>
@@ -54,27 +54,32 @@
         <div class="layout">
             <!-- 왼쪽 메뉴 -->
             <nav class="sidebar">
-                <button class="nav-btn" data-page="boq">🔎 BOQ 검색</button>
-                <button class="nav-btn" data-page="materials">📋 자재 목록</button>
-                <button class="nav-btn" data-page="usage">🔧 사용(출고) 이력</button>
-                <button class="nav-btn" data-page="purchase">🛒 구매 요청</button>
-                <button class="nav-btn" data-page="repairs">🧰 수리 관리</button>
-                <button class="nav-btn" data-page="register">➕ 자재 등록</button>
-                <button class="nav-btn" data-page="alert">⚠️ 구매 필요 알림</button>
+                <button class="nav-btn" data-page="boq">BOQ 검색</button>
+                <button class="nav-btn" data-page="materials">자재 목록</button>
+                <button class="nav-btn" data-page="usage">사용(출고) 이력</button>
+                <button class="nav-btn" data-page="purchase">구매 요청</button>
+                <button class="nav-btn" data-page="repairs">수리 관리</button>
+                <button class="nav-btn" data-page="register">자재 등록</button>
+                <button class="nav-btn" data-page="alert">구매 필요 알림</button>
             </nav>
 
             <main class="content">
-                <!-- 요약 카드 -->
+                <!-- 요약. 카테고리 개수는 보고 나서 할 일이 없는 숫자라 뺐습니다.
+                     부족 자재는 그 목록으로 가는 버튼이 되면서, 아래에 따로 있던 경고문을 대신합니다. -->
                 <div class="metrics">
-                    <div class="metric"><span class="metric-label">전체 자재</span><span class="metric-value" id="m-total">-</span></div>
-                    <div class="metric"><span class="metric-label">카테고리</span><span class="metric-value" id="m-categories">-</span></div>
-                    <div class="metric"><span class="metric-label">구매 필요</span><span class="metric-value" id="m-need">-</span></div>
+                    <div class="metric">
+                        <span class="metric-label">전체 자재</span>
+                        <span class="metric-value" id="m-total">-</span>
+                    </div>
+                    <button class="metric-action hidden" id="m-need-card" data-page="alert">
+                        <span class="metric-label">표준재고 부족</span>
+                        <span class="metric-value" id="m-need">-</span>
+                        <span class="go">부족 자재 보기 →</span>
+                    </button>
                 </div>
-                <p class="warn-box hidden" id="need-warning"></p>
 
                 <!-- ========== BOQ 검색 ========== -->
                 <section class="page" id="page-boq">
-                    <h1 class="page-title">🔎 BOQ 검색</h1>
                     <p class="caption">
                         PLC 그룹 없는 형태(예: LM101 BD001)와 포함된 형태(예: CC101 LM101 BD001)
                         둘 다 검색됩니다. 띄어쓰기와 대소문자는 무시합니다.
@@ -112,7 +117,7 @@
                 <!-- ========== 자재 목록 ========== -->
                 <section class="page hidden" id="page-materials">
                     <div class="card-head">
-                        <h1 class="page-title" style="margin:0">📋 자재 목록</h1>
+                        <h1 class="page-title" style="margin:0">자재 목록</h1>
                         <div class="card-actions">
                             <button class="secondary" id="materials-reload-btn">새로고침</button>
                             <button class="secondary" id="materials-excel-btn">엑셀</button>
@@ -130,7 +135,7 @@
                 <!-- ========== 사용(출고) 이력 ========== -->
                 <section class="page hidden" id="page-usage">
                     <div class="card-head">
-                        <h1 class="page-title" style="margin:0">🔧 사용(출고) 이력 <span class="count" id="usage-count"></span></h1>
+                        <h1 class="page-title" style="margin:0">사용(출고) 이력 <span class="count" id="usage-count"></span></h1>
                         <div class="card-actions">
                             <button class="secondary" id="usage-reload-btn">새로고침</button>
                             <button class="secondary" id="usage-excel-btn">엑셀</button>
@@ -204,7 +209,6 @@
 
                 <!-- ========== 구매 요청 ========== -->
                 <section class="page hidden" id="page-purchase">
-                    <h1 class="page-title">🛒 구매 요청</h1>
                     <p class="caption hidden" id="pr-status"></p>
 
                     <h2>새 구매 요청</h2>
@@ -253,7 +257,7 @@
                     <hr>
 
                     <div class="card-head">
-                        <h2 style="margin:0">📜 구매 이력</h2>
+                        <h2 style="margin:0">구매 이력</h2>
                         <div class="card-actions">
                             <button class="secondary" id="pr-hist-excel-btn">엑셀</button>
                         </div>
@@ -268,7 +272,7 @@
                 <!-- ========== 수리 관리 ========== -->
                 <section class="page hidden" id="page-repairs">
                     <div class="card-head">
-                        <h1 class="page-title" style="margin:0">🧰 수리 현황 <span class="count" id="repairs-count"></span></h1>
+                        <h1 class="page-title" style="margin:0">수리 현황 <span class="count" id="repairs-count"></span></h1>
                         <div class="card-actions">
                             <button class="secondary" id="repairs-reload-btn">새로고침</button>
                             <button class="secondary" id="repairs-excel-btn">엑셀</button>
@@ -320,7 +324,6 @@
 
                 <!-- ========== 자재 등록 ========== -->
                 <section class="page hidden" id="page-register">
-                    <h1 class="page-title">➕ 자재 등록</h1>
                     <p class="caption hidden" id="reg-status"></p>
 
                     <form id="reg-form" class="card">
@@ -386,7 +389,7 @@
                 <!-- ========== 구매 필요 알림 ========== -->
                 <section class="page hidden" id="page-alert">
                     <div class="card-head">
-                        <h1 class="page-title" style="margin:0">⚠️ 구매가 필요한 자재 <span class="count" id="alert-count"></span></h1>
+                        <h1 class="page-title" style="margin:0">구매가 필요한 자재 <span class="count" id="alert-count"></span></h1>
                         <div class="card-actions">
                             <select id="alert-category"></select>
                             <button class="secondary" id="alert-reload-btn">새로고침</button>
@@ -454,7 +457,7 @@
 
         <hr>
         <details>
-            <summary>🗑️ 이 요청 삭제</summary>
+            <summary>이 요청 삭제</summary>
             <p class="caption" id="pr-delete-warning"></p>
             <label class="checkbox-line">
                 <input type="checkbox" id="pr-delete-confirm"> 삭제하겠습니다

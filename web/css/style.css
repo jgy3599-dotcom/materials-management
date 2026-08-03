@@ -10,6 +10,8 @@
     --text: #E4E7EA;
     --text-dim: #878F98;
     --primary: #6F8FA8;     /* 강철 - 버튼·링크 */
+    --on-primary: #0E1013;  /* 강철 위에 얹는 글자. 흰 글자는 대비 3.4로 기준(4.5) 미달이라
+                               어두운 쪽을 씁니다. 이러면 6.7이 나옵니다. */
     --link: #8FA9BE;
     --border: #2B3037;      /* 괘선 */
     --mark: #FFC400;        /* 안전황 - 선택됨·주의·포커스에만 */
@@ -120,11 +122,12 @@ a {
 /* 버튼 */
 button {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     border: none;
     border-radius: 6px;
     padding: 9px 16px;
     font-size: 14px;
+    font-weight: 500;
     font-family: inherit;
     cursor: pointer;
 }
@@ -142,6 +145,7 @@ button.secondary {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text);
+    font-weight: 400;
 }
 
 /* 입력칸 */
@@ -244,10 +248,11 @@ label {
 
 .badge {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     border-radius: 4px;
     padding: 2px 8px;
     font-size: 12px;
+    font-weight: 500;
 }
 
 /* 왼쪽 메뉴 + 본문 배치 */
@@ -255,18 +260,6 @@ label {
     display: grid;
     grid-template-columns: 180px 1fr;
     align-items: start;
-}
-
-@media (max-width: 820px) {
-    .layout {
-        grid-template-columns: 1fr;
-    }
-    .sidebar {
-        flex-direction: row !important;
-        overflow-x: auto;
-        border-right: none !important;
-        border-bottom: 1px solid var(--border);
-    }
 }
 
 .sidebar {
@@ -279,6 +272,24 @@ label {
     min-height: calc(100vh - 53px);
 }
 
+/* 좁은 화면에서는 메뉴가 가로 한 줄이 됩니다.
+   이 블록은 .layout / .sidebar 규칙보다 반드시 아래에 있어야 합니다. 위에 두면 아래쪽
+   기본 규칙이 덮어써서, 가로 줄인데도 높이가 화면 전체로 남아 메뉴 하나가 첫 화면을
+   통째로 차지합니다(실제로 그렇게 나왔습니다). 순서로 해결되므로 !important는 쓰지 않습니다. */
+@media (max-width: 820px) {
+    .layout {
+        grid-template-columns: 1fr;
+    }
+    .sidebar {
+        flex-direction: row;
+        align-items: center;
+        min-height: auto;
+        overflow-x: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+    }
+}
+
 .nav-btn {
     background: transparent;
     border: 1px solid transparent;
@@ -286,6 +297,7 @@ label {
     text-align: left;
     white-space: nowrap;
     padding: 9px 12px;
+    font-weight: 400;
 }
 
 .nav-btn:hover {
@@ -304,6 +316,9 @@ label {
 .content {
     padding: 20px 22px 60px;
     min-width: 0;   /* 표가 넓어도 화면을 밀어내지 않게 */
+    /* 넓은 화면에서 카드가 끝없이 늘어나면 스펙 항목의 이름과 값이 양끝으로 갈라져
+       눈이 두 번 움직여야 합니다. 그래서 본문 너비에 한계를 둡니다. */
+    max-width: 1400px;
 }
 
 .page-title {
@@ -311,24 +326,23 @@ label {
     margin: 0 0 4px;
 }
 
-/* 요약 카드 */
+/* 요약 */
 .metrics {
     display: flex;
     flex-wrap: wrap;
     gap: 10px;
-    margin-bottom: 12px;
+    margin-bottom: 18px;
 }
 
 .metric {
-    flex: 1;
-    min-width: 130px;
+    flex: 0 1 200px;
     background: var(--bg-2);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: 12px 14px;
+    padding: 10px 14px;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 1px;
 }
 
 .metric-label {
@@ -336,9 +350,52 @@ label {
     font-size: 12px;
 }
 
+/* 수량은 화면 어디서나 같은 글꼴로 읽히게 합니다. 자릿수가 고정되어 값이
+   갱신돼도 숫자가 좌우로 흔들리지 않습니다. */
 .metric-value {
-    font-size: 20px;
-    font-weight: bold;
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+    font-size: 21px;
+    font-weight: 500;
+}
+
+/* 부족 자재는 숫자를 보여주고 끝내지 않고 그 목록으로 가는 입구가 됩니다.
+   화면에서 노란 왼쪽선이 여기 하나뿐이라 자연히 눈이 갑니다. */
+.metric-action {
+    flex: 0 1 260px;
+    text-align: left;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-left: 2px solid var(--mark);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-weight: 400;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+
+.metric-action:hover {
+    background: #22262C;
+    filter: none;
+}
+
+.metric-action .metric-label {
+    color: var(--mark);
+}
+
+.metric-action .go {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 2px;
+}
+
+/* 숫자 뒤에 붙는 단위. 값보다 작고 흐리게 두면 숫자가 먼저 읽힙니다. */
+.unit {
+    color: var(--text-dim);
+    font-size: 11px;
+    margin-left: 3px;
 }
 
 /* 입력칸을 두 칸씩 나란히 놓습니다. 좁은 화면에서는 한 줄에 하나가 됩니다. */
@@ -431,7 +488,7 @@ input[type="date"] {
 
 .tabulator .tabulator-footer .tabulator-page.active {
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     border-color: var(--primary);
 }
 
@@ -459,10 +516,12 @@ input[type="date"] {
     flex: 1;
 }
 
-/* 스펙과 이력을 좌우로 나란히. 화면이 좁으면 자동으로 위아래가 됩니다. */
+/* 스펙과 이력을 좌우로 나란히. 화면이 좁으면 자동으로 위아래가 됩니다.
+   스펙과 이력을 반반으로 나눕니다. minmax(0, ...)를 쓰는 이유는, 그냥 1fr로 두면
+   안에 든 긴 코드가 칸을 밀어내 비율이 틀어지기 때문입니다. */
 .two-col {
     display: grid;
-    grid-template-columns: minmax(260px, 380px) 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 14px;
     align-items: start;
 }
@@ -565,10 +624,18 @@ input[type="date"] {
     font-size: 12px;
 }
 
-/* 스펙 한 줄: 왼쪽에 항목 이름, 오른쪽에 값. 값은 전부 코드용 글꼴로 씁니다. */
+/* 넓어진 칸을 두 줄기로 흘립니다. 좁아지면 알아서 한 줄기가 됩니다. */
+.spec-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0 28px;
+}
+
+/* 스펙 한 줄: 왼쪽에 항목 이름, 오른쪽에 값. */
 .spec-row {
     display: flex;
     justify-content: space-between;
+    align-items: baseline;
     gap: 14px;
     padding: 8px 0;
     border-bottom: 1px solid var(--border);
@@ -584,10 +651,19 @@ input[type="date"] {
     flex-shrink: 0;
 }
 
-.spec-value {
+/* 값을 두 갈래로 나눕니다. 코드용 글꼴은 숫자와 규격이 자릿수로 맞아떨어질 때
+   값을 하는 것이라, 일반 낱말까지 여기 넣으면 그 효과가 흐려집니다. */
+.spec-num {
     font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
     text-align: right;
-    word-break: break-all;
+    white-space: nowrap;
+}
+
+/* break-all은 한글을 아무 데서나 끊습니다. 낱말 단위로 넘깁니다. */
+.spec-text {
+    text-align: right;
+    word-break: keep-all;
 }
 
 /* ── 교체 이력 ──────────────────────────────────────────────────

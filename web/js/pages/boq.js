@@ -28,6 +28,24 @@ function hasValue(v) {
 const PLATE_FIELDS = ["conveyor_id", "conveyor_id_with_plc", "location_1", "location_2"];
 
 
+// DB에 저장된 값을 사람이 쓰는 말로 바꿉니다.
+// 여기 없는 값은 원본 그대로 나오니, 화면에서 낯선 코드가 보이면 여기 한 줄 추가하시면 됩니다.
+const BADGE_TEXT = {
+    branch_roller_conveyor: "분기 롤러 컨베이어",
+    "소형all": "소형 전체",
+};
+
+
+// 오른쪽에 자릿수를 맞춰 세울 값인지 봅니다.
+// 치수, 규격코드, 비율(1/20)처럼 자릿수 자체가 뜻을 갖는 값이 대상입니다.
+// 한글 낱말과 roller 같은 분류명은 여기 걸리지 않아 왼쪽에서 읽히게 됩니다.
+function isCode(value) {
+    const v = String(value).trim();
+    if (v === "" || /[가-힣]{2,}/.test(v)) return false;
+    return /\d/.test(v) || !/^[a-z ]+$/.test(v);
+}
+
+
 // PLC 그룹을 떼어냅니다.
 // conveyor_id_with_plc("CC101 LM101 BD001")는 conveyor_id("LM101 BD001") 앞에 그룹 코드가
 // 붙은 형태라, 앞쪽 남는 부분이 그룹입니다. 그룹이 없는 설비도 있어 그때는 null입니다.
@@ -82,9 +100,11 @@ function renderSpec(boq, searchTerm) {
         return;
     }
 
-    const badges = BOQ_BADGE_FIELDS
-        .filter((f) => hasValue(boq[f]))
-        .map((f) => `<span class="badge-dim">${esc(boq[f])}</span>`)
+    // 같은 값이 두 칸에 들어 있는 자재가 있어 중복을 걷어냅니다.
+    const badges = [...new Set(
+            BOQ_BADGE_FIELDS.filter((f) => hasValue(boq[f])).map((f) => String(boq[f]).trim())
+        )]
+        .map((v) => `<span class="badge-dim">${esc(BADGE_TEXT[v] || v)}</span>`)
         .join("");
 
     const rows = Object.keys(BOQ_LABELS)
@@ -92,12 +112,14 @@ function renderSpec(boq, searchTerm) {
         .map((f) => `
             <div class="spec-row">
                 <span class="spec-label">${esc(BOQ_LABELS[f])}</span>
-                <span class="spec-value">${esc(boq[f])}</span>
+                <span class="${isCode(boq[f]) ? "spec-num" : "spec-text"}">${esc(boq[f])}</span>
             </div>`)
         .join("");
 
     box.innerHTML = (badges ? `<div class="badge-row">${badges}</div>` : "")
-        + (rows || '<p class="caption">표시할 스펙 항목이 없습니다.</p>');
+        + (rows
+            ? `<div class="spec-grid">${rows}</div>`
+            : '<p class="caption">표시할 스펙 항목이 없습니다.</p>');
 }
 
 

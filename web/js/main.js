@@ -68,25 +68,28 @@ function goToPage(name) {
 }
 
 
-// 맨 위 요약 카드를 채웁니다. 자재 목록 전체를 받지 않고 숫자 3개만 세어 옵니다.
+// 맨 위 요약을 채웁니다. 자재 목록 전체를 받지 않고 숫자만 세어 옵니다.
+// 부족한 자재가 없으면 그 카드를 아예 감춥니다. 문제가 없을 때도 "0건"을 띄워두면
+// 정작 문제가 생겼을 때의 신호가 묻힙니다.
 async function loadSummary() {
     try {
         const s = await getDashboardSummary();
-        document.getElementById("m-total").textContent = `${s.total.toLocaleString()}건`;
-        document.getElementById("m-categories").textContent = `${s.categories}개`;
-        document.getElementById("m-need").textContent = `${s.needPurchase}건`;
-
-        const warn = document.getElementById("need-warning");
-        if (s.needPurchase > 0) {
-            warn.textContent = `⚠️ 표준재고보다 부족한 자재가 ${s.needPurchase}건 있습니다.`;
-            warn.classList.remove("hidden");
-        } else {
-            warn.classList.add("hidden");
-        }
+        setMetric("m-total", s.total);
+        setMetric("m-need", s.needPurchase);
+        document.getElementById("m-need-card")
+            .classList.toggle("hidden", s.needPurchase === 0);
     } catch {
-        // 요약 카드는 부가 정보라, 못 가져와도 화면 전체를 막지는 않습니다.
+        // 요약은 부가 정보라, 못 가져와도 화면 전체를 막지는 않습니다.
         document.getElementById("m-total").textContent = "-";
+        document.getElementById("m-need-card").classList.add("hidden");
     }
+}
+
+
+// 단위는 숫자보다 작고 흐리게 붙습니다. 수량이 먼저 읽히게 하려는 것입니다.
+function setMetric(id, value) {
+    document.getElementById(id).innerHTML =
+        `${Number(value).toLocaleString()}<span class="unit">건</span>`;
 }
 
 
@@ -133,7 +136,10 @@ document.getElementById("logout-btn").addEventListener("click", async () => {
 });
 
 
-for (const btn of document.querySelectorAll(".nav-btn")) {
+// 요약 카드에서도 페이지를 열 수 있게 선택자를 넓혔습니다.
+// 위쪽 goToPage 안의 .active 표시는 .nav-btn 그대로 두어야 합니다.
+// 여기까지 넓히면 요약 카드에도 현재 위치 표시가 붙습니다.
+for (const btn of document.querySelectorAll("[data-page]")) {
     btn.addEventListener("click", () => goToPage(btn.dataset.page));
 }
 

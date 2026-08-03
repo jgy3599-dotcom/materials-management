@@ -17,7 +17,7 @@ const tables = new Map();
 //   columns   : 보여줄 컬럼 이름 배열 (순서대로)
 //   options   : { pageSize, selectable, onRowClick }
 export function renderTable(elementId, rows, columns, options = {}) {
-    const { pageSize = 50, selectable = false, onRowClick = null } = options;
+    const { pageSize = 25, selectable = false, onRowClick = null } = options;
 
     // 같은 자리에 다시 그릴 때는 이전 표를 정리합니다. 안 그러면 겹쳐 쌓입니다.
     if (tables.has(elementId)) {
