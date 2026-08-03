@@ -385,6 +385,41 @@ input[type="date"] {
     font-size: 12px;
 }
 
+/* 페이지 넘김 줄 */
+.tabulator .tabulator-footer {
+    background: var(--bg-side);
+    border-color: var(--border);
+    color: var(--text-dim);
+}
+
+.tabulator .tabulator-footer .tabulator-page {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 4px 10px;
+    margin: 0 2px;
+}
+
+.tabulator .tabulator-footer .tabulator-page.active {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+}
+
+.tabulator .tabulator-footer .tabulator-page:disabled {
+    opacity: 0.4;
+}
+
+.tabulator .tabulator-footer .tabulator-page-size {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 3px 6px;
+    width: auto;
+}
+
 /* 검색줄 */
 .search-bar {
     display: flex;

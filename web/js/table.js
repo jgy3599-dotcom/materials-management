@@ -15,9 +15,9 @@ const tables = new Map();
 //   elementId : 표를 넣을 자리의 id
 //   rows      : {컬럼명: 값} 형태의 객체 배열
 //   columns   : 보여줄 컬럼 이름 배열 (순서대로)
-//   options   : { height, selectable, onRowClick }
+//   options   : { pageSize, selectable, onRowClick }
 export function renderTable(elementId, rows, columns, options = {}) {
-    const { height = "520px", selectable = false, onRowClick = null } = options;
+    const { pageSize = 50, selectable = false, onRowClick = null } = options;
 
     // 같은 자리에 다시 그릴 때는 이전 표를 정리합니다. 안 그러면 겹쳐 쌓입니다.
     if (tables.has(elementId)) {
@@ -27,11 +27,18 @@ export function renderTable(elementId, rows, columns, options = {}) {
 
     const table = new Tabulator(`#${elementId}`, {
         data: rows,
-        height,
         layout: "fitDataStretch",
         placeholder: "표시할 데이터가 없습니다",
-        // 화면에 보이는 행만 그려서 큰 표도 빠르게 뜹니다.
-        renderVertical: "virtual",
+
+        // 스크롤 대신 페이지로 나눠 보여줍니다.
+        // 스크롤 방식은 "화면에 보이는 행만 그리는" 계산을 하는데, 표의 크기를 잘못 재면
+        // 행이 하나도 안 그려지는 문제가 있었습니다. 페이지 방식은 한 번에 50줄만 그리므로
+        // 그 계산 자체가 필요 없어 훨씬 안정적이고, 첫 표시도 빠릅니다.
+        pagination: true,
+        paginationSize: pageSize,
+        paginationSizeSelector: [25, 50, 100, 200],
+        paginationCounter: "rows",
+
         selectableRows: selectable ? 1 : false,
         columns: columns.map((name) => ({
             title: name,
@@ -41,6 +48,21 @@ export function renderTable(elementId, rows, columns, options = {}) {
             resizable: true,
             headerSort: true,
         })),
+
+        locale: "ko",
+        langs: {
+            ko: {
+                pagination: {
+                    first: "«", first_title: "첫 페이지",
+                    last: "»", last_title: "마지막 페이지",
+                    prev: "이전", prev_title: "이전 페이지",
+                    next: "다음", next_title: "다음 페이지",
+                    all: "전체",
+                    counter: { showing: "", of: "/", rows: "건", pages: "페이지" },
+                },
+                data: { loading: "불러오는 중...", error: "오류가 났습니다" },
+            },
+        },
     });
 
     if (onRowClick) {

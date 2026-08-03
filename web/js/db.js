@@ -66,15 +66,31 @@ export async function getDashboardSummary() {
 
 
 // Supabase는 한 번에 최대 1000건까지만 돌려주므로, 그보다 많으면 나눠서 가져와야 합니다.
-// buildQuery는 부를 때마다 새 질의를 만들어주는 함수입니다.
+//
+// 첫 페이지를 받을 때 전체 건수도 함께 확인한 뒤, 나머지 페이지는 한꺼번에 요청합니다.
+// 차례대로 기다리면 4,246건(5페이지)에서 왕복 시간이 다섯 번 쌓이는데, 동시에 보내면
+// 가장 느린 하나만큼만 걸립니다. 브라우저가 동시 요청을 알아서 처리해 줍니다.
+//
+// buildQuery(opts)는 부를 때마다 새 질의를 만들어주는 함수이며, opts는 select의
+// 두 번째 인자로 그대로 넘겨서 건수를 함께 받아오는 데 씁니다.
 async function fetchAllRows(buildQuery) {
     const PAGE = 1000;
-    const rows = [];
-    for (let from = 0; ; from += PAGE) {
-        const { data, error } = await buildQuery().range(from, from + PAGE - 1);
-        if (error) throw error;
-        rows.push(...data);
-        if (data.length < PAGE) break;   // 마지막 페이지
+
+    const first = await buildQuery({ count: "exact" }).range(0, PAGE - 1);
+    if (first.error) throw first.error;
+
+    const total = first.count ?? first.data.length;
+    if (total <= PAGE) return first.data;
+
+    const pending = [];
+    for (let from = PAGE; from < total; from += PAGE) {
+        pending.push(buildQuery({}).range(from, from + PAGE - 1));
+    }
+
+    const rows = [...first.data];
+    for (const result of await Promise.all(pending)) {
+        if (result.error) throw result.error;
+        rows.push(...result.data);
     }
     return rows;
 }
@@ -82,8 +98,8 @@ async function fetchAllRows(buildQuery) {
 
 // 자재 목록 전체를 한글 컬럼명으로 바꿔서 가져옵니다.
 export async function getMaterials() {
-    const rows = await fetchAllRows(() =>
-        supabase.from("materials").select("*").order("id"));
+    const rows = await fetchAllRows((opts) =>
+        supabase.from("materials").select("*", opts).order("id"));
 
     return rows.map((row) => {
         const out = {};
@@ -98,10 +114,13 @@ export async function getMaterials() {
 // 사용(출고) 이력을 가져옵니다.
 // 입고 기록은 '구매 요청' 쪽에서 따로 관리하므로, 여기서는 출고만 DB에서 걸러서 받습니다.
 export async function getUsageHistory() {
-    const rows = await fetchAllRows(() =>
+    const rows = await fetchAllRows((opts) =>
         supabase
             .from("history")
-            .select("occurred_on, quantity, manager, equipment_id, problem, action_taken, part_memo, note, materials(part_name)")
+            .select(
+                "occurred_on, quantity, manager, equipment_id, problem, action_taken, part_memo, note, materials(part_name)",
+                opts,
+            )
             .eq("direction", "출고")
             .order("id"));
 
