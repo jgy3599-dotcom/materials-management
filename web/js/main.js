@@ -1,60 +1,76 @@
-// 배포가 제대로 됐는지 단계별로 확인해서 화면에 보여줍니다.
-// 앞으로 화면을 붙여나가기 전에, 밑바탕이 정상인지부터 확인하려고 만든 페이지입니다.
-import { supabase, checkConnection } from "./supabase.js";
-import { SUPABASE_URL } from "./config.js";
+// 화면 전환(로그인 ↔ 앱)을 담당합니다.
+import { getSession, getRole, signIn, signOut, onAuthChange } from "./auth.js";
 
-// 점검 항목 한 줄의 표시를 바꿉니다. state는 ok / warn / error 중 하나입니다.
-function setCheck(id, state, detail) {
-    const row = document.getElementById(id);
-    const mark = { ok: "✅", warn: "⏳", error: "❌" }[state];
-    row.querySelector(".mark").textContent = mark;
-    row.querySelector(".mark").className = "mark " + state;
-    row.querySelector(".detail").textContent = detail;
+const loadingView = document.getElementById("loading-view");
+const loginView = document.getElementById("login-view");
+const appView = document.getElementById("app-view");
+const loginForm = document.getElementById("login-form");
+const loginBtn = document.getElementById("login-btn");
+const loginError = document.getElementById("login-error");
+
+
+// 세 화면 중 하나만 보이게 합니다.
+function show(view) {
+    for (const v of [loadingView, loginView, appView]) {
+        v.classList.toggle("hidden", v !== view);
+    }
 }
 
-async function run() {
-    // 1) 이 스크립트가 실행됐다는 것 자체가 정적 호스팅이 동작한다는 뜻입니다.
-    setCheck("c-page", "ok", "정적 호스팅 정상");
 
-    // 2) 설정 파일이 제대로 불러와졌는지
-    if (SUPABASE_URL && SUPABASE_URL.startsWith("https://")) {
-        setCheck("c-config", "ok", SUPABASE_URL);
+function showError(message) {
+    loginError.textContent = message;
+    loginError.classList.remove("hidden");
+}
+
+
+function clearError() {
+    loginError.textContent = "";
+    loginError.classList.add("hidden");
+}
+
+
+// 로그인 여부에 따라 알맞은 화면을 띄웁니다.
+function render(session) {
+    if (session) {
+        document.getElementById("user-email").textContent = session.user.email;
+        document.getElementById("user-role").textContent = getRole(session);
+        show(appView);
     } else {
-        setCheck("c-config", "error", "config.js의 주소가 비어있습니다");
-        return;
+        show(loginView);
     }
+}
 
-    // 3) Supabase 라이브러리가 CDN에서 불러와졌는지
-    if (supabase && supabase.auth) {
-        setCheck("c-lib", "ok", "supabase-js 불러오기 완료");
-    } else {
-        setCheck("c-lib", "error", "CDN에서 라이브러리를 못 불러왔습니다");
-        return;
-    }
 
-    // 4) 실제로 Supabase 서버까지 닿는지
-    // 여기서 실패해도 아래 검사는 계속합니다. 한 줄이 "확인 중..."으로 멈춰 있으면
-    // 뭐가 문제인지 알기 어려워서, 끝까지 다 보여주는 편이 낫습니다.
-    let connected = false;
+loginForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearError();
+
+    // 처리하는 동안 버튼을 잠가서 두 번 눌리는 것을 막습니다.
+    loginBtn.disabled = true;
+    loginBtn.textContent = "로그인 중...";
     try {
-        await checkConnection();
-        connected = true;
-        setCheck("c-conn", "ok", "서버 응답 정상");
-    } catch (e) {
-        setCheck("c-conn", "error", String(e.message || e));
+        await signIn(
+            document.getElementById("email").value.trim(),
+            document.getElementById("password").value,
+        );
+        // 화면 전환은 아래 onAuthChange가 알아서 해줍니다.
+    } catch (err) {
+        showError(err.message);
+    } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = "로그인";
     }
+});
 
-    // 5) 지금 로그인된 상태인지 (아직 로그인 화면이 없어서 보통 "없음"이 정상입니다)
-    const { data } = await supabase.auth.getSession();
-    if (data.session) {
-        setCheck("c-session", "ok", `로그인됨: ${data.session.user.email}`);
-    } else {
-        setCheck("c-session", "warn", "아직 로그인 안 함 (다음 단계에서 만듭니다)");
-    }
 
-    document.getElementById("result").textContent = connected
-        ? "밑바탕 확인 완료. 다음 단계는 로그인 화면입니다."
-        : "Supabase 연결에 문제가 있습니다. 위 오류 내용을 알려주세요.";
-}
+document.getElementById("logout-btn").addEventListener("click", async () => {
+    await signOut();
+    document.getElementById("password").value = "";
+});
 
-run();
+
+// 로그인/로그아웃이 일어나면 화면을 다시 그립니다. 다른 탭에서 로그아웃해도 여기로 들어옵니다.
+onAuthChange(render);
+
+// 페이지를 처음 열었을 때 한 번 확인합니다.
+render(await getSession());

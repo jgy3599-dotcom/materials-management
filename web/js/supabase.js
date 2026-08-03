@@ -12,20 +12,3 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
         autoRefreshToken: true,
     },
 });
-
-
-// 서버까지 실제로 닿는지 확인합니다.
-//
-// fetch로 직접 부르지 않고 supabase 클라이언트를 쓰는 이유: Supabase는 apikey 말고
-// Authorization 헤더도 함께 요구하는데, 라이브러리가 그걸 알아서 붙여줍니다.
-// 게다가 실제 화면들이 쓸 경로와 같아져서 더 의미 있는 검사가 됩니다.
-//
-// 로그인 전에는 RLS가 막아서 데이터가 0건으로 나오는데, 그게 정상입니다.
-// 여기서 확인하려는 건 "데이터가 있는가"가 아니라 "서버까지 닿는가"입니다.
-export async function checkConnection() {
-    const { error } = await supabase.from("materials").select("id").limit(1);
-    if (error) {
-        throw new Error(`${error.message}${error.code ? ` (코드 ${error.code})` : ""}`);
-    }
-    return true;
-}

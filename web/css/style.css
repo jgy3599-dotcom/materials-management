@@ -155,3 +155,72 @@ label {
     color: var(--text-dim);
     margin: 12px 0 5px;
 }
+
+.hidden {
+    display: none !important;
+}
+
+/* 로그인·로딩처럼 화면 가운데에 놓는 경우 */
+.center-screen {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+.login-box {
+    width: 100%;
+    max-width: 380px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 32px 28px;
+}
+
+.login-box h1 {
+    font-size: 22px;
+}
+
+.error-msg {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    background: rgba(248, 113, 113, 0.12);
+    border: 1px solid var(--error);
+    border-radius: 6px;
+    color: var(--error);
+    font-size: 13px;
+}
+
+/* 로그인 후 위쪽 막대 */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+    padding: 12px 20px;
+    background: var(--bg-side);
+    border-bottom: 1px solid var(--border);
+}
+
+.topbar .brand {
+    font-size: 17px;
+    font-weight: bold;
+}
+
+.topbar .user {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-dim);
+}
+
+.badge {
+    background: var(--primary);
+    color: #fff;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+}
