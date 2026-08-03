@@ -98,9 +98,15 @@ def main():
             print("\n[6] 구매 요청")
             page.click('.nav-btn[data-page="purchase"]')
             page.wait_for_selector("#page-purchase:not(.hidden)", timeout=20000)
-            page.wait_for_timeout(4000)
-            check("구매 요청 화면이 보인다", page.locator("#page-purchase").is_visible())
-            check("상태 필터가 채워진다", page.locator("#pr-status-filter option").count() > 1)
+            # 요청이 0건일 수도 있어서 행 수가 아니라 "표가 만들어졌는지"를 봅니다.
+            page.wait_for_selector("#purchase-requests-table .tabulator-header", timeout=25000)
+            check("요청 목록 표가 만들어진다", True)
+            check("상태 필터가 채워진다", page.locator("#pr-status-filter option").count() > 1,
+                  f"{page.locator('#pr-status-filter option').count()}개")
+            check("부품 선택칸이 채워진다", page.locator("#pr-part option").count() > 0,
+                  f"{page.locator('#pr-part option').count()}개")
+            check("구매 이력 표가 만들어진다",
+                  page.locator("#purchase-history-table .tabulator-header").count() > 0)
 
             print("\n[7] 수리 관리")
             page.click('.nav-btn[data-page="repairs"]')
@@ -108,7 +114,43 @@ def main():
             n = count_rows(page, "repairs-table")
             check("수리 현황 표에 행이 그려진다", n > 0, f"{n}행")
 
-            print("\n[8] BOQ 검색")
+            print("\n[8] 자재 등록")
+            page.click('.nav-btn[data-page="register"]')
+            page.wait_for_selector("#page-register:not(.hidden)", timeout=20000)
+            page.wait_for_function(
+                "document.getElementById('reg-category').options.length > 0", timeout=20000)
+            n = page.locator("#reg-category option").count()
+            check("카테고리 선택칸이 채워진다", n > 0, f"{n}개")
+            check("제조사 기본값이 '-'다", page.input_value("#reg-manufacturer") == "-")
+            check("거래처 기본값이 '-'다", page.input_value("#reg-vendor") == "-")
+
+            # 관리자에게만 보이는 "새 카테고리 직접 입력"을 골랐을 때 입력칸이 나타나는지.
+            # 데이터를 만들지 않으면서 화면 동작을 확인할 수 있는 검사입니다.
+            options = page.locator("#reg-category option").all_inner_texts()
+            new_option = next((o for o in options if "새 카테고리" in o), None)
+            if role == "관리자":
+                if check("관리자에게 '새 카테고리 직접 입력'이 보인다", new_option is not None):
+                    page.select_option("#reg-category", label=new_option)
+                    page.wait_for_timeout(300)
+                    check("고르면 새 카테고리명 칸이 나타난다",
+                          page.locator("#reg-new-category-box").is_visible())
+            else:
+                check("일반 권한에는 '새 카테고리 직접 입력'이 안 보인다", new_option is None)
+
+            print("\n[9] 구매 필요 알림")
+            page.click('.nav-btn[data-page="alert"]')
+            page.wait_for_selector("#alert-table .tabulator-row", timeout=25000)
+            n = count_rows(page, "alert-table")
+            check("구매 필요 표에 행이 그려진다", n > 0, f"{n}행")
+            check("카테고리 필터가 채워진다", page.locator("#alert-category option").count() > 1,
+                  f"{page.locator('#alert-category option').count()}개")
+            # 화면에 적힌 건수와 위 요약 카드의 '구매 필요' 숫자가 같아야 합니다.
+            listed = page.locator("#alert-count").inner_text().replace("건", "").strip()
+            summary = page.locator("#m-need").inner_text().replace("건", "").replace(",", "").strip()
+            check("요약 카드의 '구매 필요' 건수와 일치한다", listed == summary,
+                  f"목록 {listed} / 요약 {summary}")
+
+            print("\n[10] BOQ 검색")
             page.click('.nav-btn[data-page="boq"]')
             page.fill("#boq-input", "LM101 BD001")
             page.click("#boq-search-btn")
@@ -116,7 +158,7 @@ def main():
             spec = page.locator("#boq-spec").inner_text()
             check("검색 결과가 표시된다", len(spec.strip()) > 0, spec.strip().splitlines()[0][:40] if spec.strip() else "")
 
-            print("\n[9] 브라우저 콘솔 오류")
+            print("\n[11] 브라우저 콘솔 오류")
             # 라이브러리가 내는 흔한 잡음은 걸러냅니다.
             real = [e for e in console_errors if "favicon" not in e.lower()]
             check("JS 오류가 없다", not real, f"{len(real)}건" if real else "")
