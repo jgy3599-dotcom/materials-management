@@ -1,10 +1,11 @@
 // 화면 전환(로그인 ↔ 앱, 메뉴 간 이동)을 담당합니다.
-import { getSession, getRole, signIn, signOut, onAuthChange } from "./auth.js";
+import { getSession, getRole, isAdmin, signIn, signOut, onAuthChange } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
 import { redrawTable } from "./table.js";
 import * as boqPage from "./pages/boq.js";
 import * as materialsPage from "./pages/materials.js";
 import * as usagePage from "./pages/usage.js";
+import * as purchasePage from "./pages/purchase.js";
 
 const loadingView = document.getElementById("loading-view");
 const loginView = document.getElementById("login-view");
@@ -20,6 +21,7 @@ const PAGES = {
     boq: { load: null, tableId: null },
     materials: { load: () => materialsPage.load(), tableId: "materials-table" },
     usage: { load: () => usagePage.load(), tableId: "usage-table" },
+    purchase: { load: () => purchasePage.load(), tableId: "purchase-requests-table" },
 };
 
 let currentPage = "boq";
@@ -86,6 +88,7 @@ function render(session) {
     if (session) {
         document.getElementById("user-email").textContent = session.user.email;
         document.getElementById("user-role").textContent = getRole(session);
+        purchasePage.setUser(session, isAdmin(session));
         show(appView);
         loadSummary();
         goToPage(currentPage);
@@ -131,6 +134,7 @@ for (const btn of document.querySelectorAll(".nav-btn")) {
 // 각 화면의 버튼 동작을 연결합니다. 로그인 여부와 상관없이 한 번만 하면 됩니다.
 boqPage.init();
 materialsPage.init();
+purchasePage.init();
 // 사용이력 표에서 설비를 고르면 그 ID로 BOQ 검색 화면으로 넘어가게 연결합니다.
 usagePage.init((equipmentId) => {
     goToPage("boq");

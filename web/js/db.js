@@ -2,6 +2,7 @@
 // Streamlit 앱의 db.py에 해당합니다. 업무 규칙은 DB의 SQL 함수와 RLS가 그대로 갖고 있으므로,
 // 여기서는 부르기만 하고 규칙을 다시 구현하지 않습니다.
 import { supabase } from "./supabase.js";
+import { today } from "./ui.js";
 
 // boq 테이블의 영문 컬럼명을 화면에 보여줄 한글 이름으로 바꿔주는 매핑표입니다.
 // (db.py의 BOQ_COLUMNS와 같은 내용입니다. 한쪽을 고치면 다른 쪽도 맞춰야 합니다.)
@@ -156,6 +157,132 @@ export async function registerUsage(params) {
         p_deduct_stock: params.deductStock,
     });
     if (error) throw error;
+}
+
+
+// ---------------------------------------------------------------------------
+// 구매 요청
+// 상태 흐름: 요청됨 → 검토중 → 승인됨 → 구매중 → 입고완료
+//           (검토중·승인됨 단계에서 반려됨으로 갈 수 있음)
+// ---------------------------------------------------------------------------
+
+// 아직 끝나지 않은(입고완료·반려됨이 아닌) 상태들입니다. 중복 요청 경고에 씁니다.
+export const OPEN_STATUSES = ["요청됨", "검토중", "승인됨", "구매중"];
+export const ALL_STATUSES = [...OPEN_STATUSES, "입고완료", "반려됨"];
+
+const now = () => new Date().toISOString();
+
+
+export async function getPurchaseRequests() {
+    const rows = await fetchAllRows((opts) =>
+        supabase
+            .from("purchase_requests")
+            .select("*, materials(part_name, standard_qty, current_qty)", opts)
+            .order("id", { ascending: false }));
+
+    return rows.map((row) => ({
+        id: row.id,
+        "부품명(규격)": row.materials?.part_name ?? null,
+        material_id: row.material_id,
+        표준재고: row.materials?.standard_qty ?? null,
+        현재재고: row.materials?.current_qty ?? null,
+        요청수량: row.requested_qty,
+        상태: row.status,
+        요청자: row.requester_email,
+        요청사유: row.request_note,
+        반려사유: row.reject_reason,
+        거래업체: row.vendor,
+        단가: row.unit_price,
+        입고수량: row.received_qty,
+        요청일시: row.requested_at,
+    }));
+}
+
+
+// 같은 자재에 아직 진행 중인 요청이 몇 건 있는지 셉니다.
+export async function countOpenRequests(materialId) {
+    const { count, error } = await supabase
+        .from("purchase_requests")
+        .select("id", { count: "exact", head: true })
+        .eq("material_id", materialId)
+        .in("status", OPEN_STATUSES);
+    if (error) throw error;
+    return count ?? 0;
+}
+
+
+export async function insertPurchaseRequest(materialId, requestedQty, requesterEmail, requestNote) {
+    const { error } = await supabase.from("purchase_requests").insert({
+        material_id: materialId,
+        requested_qty: requestedQty,
+        requester_email: requesterEmail,
+        request_note: requestNote || null,
+        status: "요청됨",
+    });
+    if (error) throw error;
+}
+
+
+async function updateRequest(requestId, patch) {
+    const { error } = await supabase.from("purchase_requests").update(patch).eq("id", requestId);
+    if (error) throw error;
+}
+
+export const startReview = (id) => updateRequest(id, { status: "검토중", reviewed_at: now() });
+
+// 검토 중에 실제로 필요한 수량이 다르다고 판단되면, 승인하면서 요청수량 자체를 고칩니다.
+export const approveRequest = (id, qty) =>
+    updateRequest(id, { status: "승인됨", approved_at: now(), requested_qty: qty });
+
+export const rejectRequest = (id, reason) =>
+    updateRequest(id, { status: "반려됨", rejected_at: now(), reject_reason: reason });
+
+export const markPurchasing = (id, vendor, unitPrice) =>
+    updateRequest(id, { status: "구매중", purchased_at: now(), vendor, unit_price: unitPrice });
+
+
+// 입고 처리: 재고 증가 + 구매이력 기록 + 상태 변경이 DB 함수 하나로 묶여 있어서,
+// 중간에 실패해 재고만 늘고 상태는 그대로인 어긋난 상태가 생기지 않습니다.
+export async function receiveRequest(requestId, materialId, receivedQty, vendor, unitPrice) {
+    const { error } = await supabase.rpc("receive_purchase_request", {
+        p_request_id: requestId,
+        p_material_id: materialId,
+        p_received_qty: receivedQty,
+        p_vendor: vendor,
+        p_unit_price: unitPrice,
+        p_received_on: today(),
+    });
+    if (error) throw error;
+}
+
+
+// 삭제: 이미 입고완료였다면 그때 늘린 재고를 되돌리고, 구매이력에는 취소 표시만 남깁니다
+// (기록 자체는 지우지 않습니다). 이것도 DB 함수 하나가 한 묶음으로 처리합니다.
+export async function removePurchaseRequest(requestId) {
+    const { error } = await supabase.rpc("remove_purchase_request", { p_request_id: requestId });
+    if (error) throw error;
+}
+
+
+// 구매 이력: 입고완료된 구매가 쌓이는 기록입니다. 구매요청을 나중에 지워도 남습니다.
+export async function getPurchaseHistory() {
+    const rows = await fetchAllRows((opts) =>
+        supabase
+            .from("purchase_history")
+            .select("*, materials(part_name)", opts)
+            .order("id", { ascending: false }));
+
+    return rows.map((row) => ({
+        id: row.id,
+        // material_id가 없는 레거시 건(자재목록에 없는 소모품 등)은 item_description을 대신 보여줍니다.
+        "부품명(규격)": row.materials?.part_name ?? row.item_description,
+        수량: row.quantity,
+        거래업체: row.vendor,
+        단가: row.unit_price,
+        입고일: row.received_on,
+        구매요청ID: row.request_id,
+        취소일시: row.reverted_at,
+    }));
 }
 
 

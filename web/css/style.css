@@ -563,3 +563,49 @@ input[type="date"] {
 .t-foot:empty {
     display: none;
 }
+
+/* 팝업 (구매 요청 처리 등) */
+dialog {
+    background: var(--bg-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 24px;
+    width: min(440px, calc(100vw - 32px));
+    max-height: 85vh;
+}
+
+dialog::backdrop {
+    background: rgba(0, 0, 0, 0.6);
+}
+
+.dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.dialog-head button {
+    padding: 4px 10px;
+}
+
+dialog details summary {
+    cursor: pointer;
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.checkbox-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-size: 14px;
+    margin: 8px 0 0;
+}
+
+.checkbox-line input {
+    width: auto;
+}

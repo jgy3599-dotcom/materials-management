@@ -51,6 +51,7 @@
                 <button class="nav-btn" data-page="boq">🔎 BOQ 검색</button>
                 <button class="nav-btn" data-page="materials">📋 자재 목록</button>
                 <button class="nav-btn" data-page="usage">🔧 사용(출고) 이력</button>
+                <button class="nav-btn" data-page="purchase">🛒 구매 요청</button>
             </nav>
 
             <main class="content">
@@ -188,9 +189,132 @@
                         <p class="caption hidden" id="usage-form-status"></p>
                     </form>
                 </section>
+
+                <!-- ========== 구매 요청 ========== -->
+                <section class="page hidden" id="page-purchase">
+                    <h1 class="page-title">🛒 구매 요청</h1>
+                    <p class="caption hidden" id="pr-status"></p>
+
+                    <h2>새 구매 요청</h2>
+                    <form id="pr-form" class="card">
+                        <div class="form-grid">
+                            <div>
+                                <label for="pr-category">카테고리로 먼저 좁히기</label>
+                                <select id="pr-category"></select>
+                            </div>
+                            <div>
+                                <label for="pr-part">부품명(규격)</label>
+                                <select id="pr-part"></select>
+                            </div>
+                            <div>
+                                <label for="pr-requester">요청자</label>
+                                <input type="text" id="pr-requester" required>
+                            </div>
+                            <div>
+                                <label for="pr-qty">요청수량</label>
+                                <input type="number" id="pr-qty" min="1" step="1" value="1" required>
+                            </div>
+                        </div>
+                        <p class="caption" id="pr-stock"></p>
+
+                        <label for="pr-note">요청사유 (선택)</label>
+                        <input type="text" id="pr-note">
+
+                        <button type="submit" id="pr-submit-btn" style="margin-top:16px">요청 등록</button>
+                        <p class="caption hidden" id="pr-form-status"></p>
+                    </form>
+
+                    <hr>
+
+                    <div class="card-head">
+                        <h2 style="margin:0">구매 요청 목록 <span class="count" id="pr-count"></span></h2>
+                        <div class="card-actions">
+                            <select id="pr-status-filter"></select>
+                            <button class="secondary" id="pr-reload-btn">새로고침</button>
+                            <button class="secondary" id="pr-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption">관리자는 행을 클릭하면 처리 창이 열립니다.</p>
+                    <p class="caption hidden" id="pr-admin-hint">요청 처리는 관리자만 할 수 있습니다.</p>
+                    <div id="purchase-requests-table"></div>
+
+                    <hr>
+
+                    <div class="card-head">
+                        <h2 style="margin:0">📜 구매 이력</h2>
+                        <div class="card-actions">
+                            <button class="secondary" id="pr-hist-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption">
+                        구매요청을 거쳐 입고완료된 구매가 쌓이는 기록입니다.
+                        위 목록에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.
+                    </p>
+                    <div id="purchase-history-table"></div>
+                </section>
             </main>
         </div>
     </div>
+
+    <!-- 구매 요청 처리 팝업. 요청의 현재 상태에 따라 보이는 칸이 달라집니다. -->
+    <dialog id="pr-dialog">
+        <div class="dialog-head">
+            <h2 style="margin:0">구매 요청 처리</h2>
+            <button class="secondary" id="pr-dialog-close">✕</button>
+        </div>
+
+        <div id="pr-dialog-info"></div>
+        <hr>
+
+        <!-- 요청됨 -->
+        <div id="pr-step-요청됨" class="hidden">
+            <button id="pr-review-btn" style="width:100%">검토 시작</button>
+        </div>
+
+        <!-- 검토중: 승인(수량 수정 가능) 또는 반려(사유 필수) -->
+        <div id="pr-step-검토중" class="hidden">
+            <label for="pr-approve-qty">승인할 수량 (필요하면 수정)</label>
+            <input type="number" id="pr-approve-qty" min="1" step="1">
+            <button id="pr-approve-btn" style="width:100%; margin-top:10px">✅ 승인</button>
+
+            <label for="pr-reject-reason" style="margin-top:18px">반려 사유</label>
+            <input type="text" id="pr-reject-reason">
+            <button class="secondary" id="pr-reject-btn" style="width:100%; margin-top:10px">❌ 반려</button>
+        </div>
+
+        <!-- 승인됨: 거래업체·단가를 넣고 발주 -->
+        <div id="pr-step-승인됨" class="hidden">
+            <label for="pr-vendor">거래업체</label>
+            <input type="text" id="pr-vendor">
+            <label for="pr-price">단가</label>
+            <input type="number" id="pr-price" min="0" step="100" value="0">
+            <button id="pr-purchase-btn" style="width:100%; margin-top:12px">구매 처리 (발주 완료)</button>
+        </div>
+
+        <!-- 구매중: 입고 수량을 넣고 재고 반영 -->
+        <div id="pr-step-구매중" class="hidden">
+            <label for="pr-receive-qty">입고 수량</label>
+            <input type="number" id="pr-receive-qty" min="1" step="1">
+            <button id="pr-receive-btn" style="width:100%; margin-top:12px">입고 처리 (재고 반영)</button>
+        </div>
+
+        <!-- 입고완료 / 반려됨 -->
+        <div id="pr-step-끝" class="hidden">
+            <p class="caption">이미 종료된 요청입니다 (입고완료 또는 반려됨).</p>
+        </div>
+
+        <hr>
+        <details>
+            <summary>🗑️ 이 요청 삭제</summary>
+            <p class="caption" id="pr-delete-warning"></p>
+            <label class="checkbox-line">
+                <input type="checkbox" id="pr-delete-confirm"> 삭제하겠습니다
+            </label>
+            <button id="pr-delete-btn" style="width:100%; margin-top:8px" disabled>삭제</button>
+        </details>
+
+        <p class="caption hidden" id="pr-dialog-status"></p>
+    </dialog>
 
     <script type="module" src="js/main.js"></script>
 </body>
