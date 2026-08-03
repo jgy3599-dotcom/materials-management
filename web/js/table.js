@@ -62,6 +62,34 @@ function columnKind(rows, name) {
 }
 
 
+// 값의 종류가 적은 칸은 같은 말이 계속 되풀이되는 부수 정보입니다
+// (카테고리, 거래처, 설치위치처럼). 한 단계 흐리게 해서, 정작 찾는 값이 도드라지게 합니다.
+// 줄 수가 적으면 판단할 근거가 부족하므로 8줄 이상일 때만 봅니다.
+function isRepetitive(rows, name) {
+    const seen = new Set();
+    let count = 0;
+    for (const row of rows) {
+        const v = row[name];
+        if (v === null || v === undefined || String(v).trim() === "") continue;
+        seen.add(String(v));
+        if (++count >= 200) break;
+    }
+    return count >= 8 && seen.size <= count * 0.3;
+}
+
+
+// '구매필요'가 양수면 그만큼 모자라다는 뜻이라 눈에 띄어야 합니다.
+// 0 이하는 채워져 있다는 뜻이니 흐리게 둡니다.
+function shortageFormatter(cell) {
+    const value = cell.getValue();
+    if (value === null || value === undefined || value === "") return "";
+    const n = Number(value);
+    const text = esc(value);
+    if (!Number.isFinite(n)) return text;
+    return n > 0 ? `<span class="short">${text}</span>` : `<span class="enough">${text}</span>`;
+}
+
+
 // '상태' 칸을 그립니다. DB에서 온 값이라 화면에 넣기 전에 특수문자를 무해하게 바꿉니다.
 function statusFormatter(cell) {
     const value = cell.getValue();
@@ -70,6 +98,29 @@ function statusFormatter(cell) {
     const text = esc(value);
     const kind = STATUS_KIND[String(value).trim()];
     return kind ? `<span class="status status-${kind}">${text}</span>` : text;
+}
+
+
+// 값을 그대로 두지 않고 따로 그리는 칸들입니다. 컬럼 이름은 화면이 달라도 같아서
+// 여기 한 곳에 모아둡니다. 여기 없는 칸은 손대지 않습니다.
+const FORMATTERS = {
+    "상태": statusFormatter,
+    "구매필요": shortageFormatter,
+};
+
+// 이 표에서 실제로 찾는 대상입니다. 다른 칸을 흐리게 하는 것만으로는 부족해서
+// 이쪽은 조금 또렷하게 둡니다.
+const PRIMARY_COLUMNS = ["부품명(규격)"];
+
+
+// 칸에 붙일 css 클래스를 정합니다.
+function cellClasses(rows, name, kind) {
+    const classes = [];
+    if (kind !== "text") classes.push("cell-mono");
+    if (PRIMARY_COLUMNS.includes(name)) classes.push("cell-primary");
+    // 숫자는 이미 오른쪽 자릿수 맞춤으로 구분되니 흐리게 하지 않습니다.
+    else if (kind === "text" && isRepetitive(rows, name)) classes.push("cell-dim");
+    return classes.length ? classes.join(" ") : undefined;
 }
 
 
@@ -120,11 +171,11 @@ export function renderTable(elementId, rows, columns, options = {}) {
                 // 어느 쪽이 큰지 한눈에 안 들어옵니다.
                 hozAlign: kind === "number" ? "right" : "left",
                 headerHozAlign: kind === "number" ? "right" : "left",
-                cssClass: kind === "text" ? undefined : "cell-mono",
-                // '상태' 칸은 값 앞에 작은 색점을 붙여 성격을 구분합니다.
-                // 글자까지 물들이지 않고 점만 쓰는 것은, 표가 색으로 시끄러워지지 않게
-                // 하면서도 훑을 때는 눈에 걸리게 하려는 것입니다.
-                formatter: name === "상태" ? statusFormatter : undefined,
+                cssClass: cellClasses(rows, name, kind),
+                // 몇몇 칸은 값을 그대로 두지 않고 성격이 드러나게 그립니다.
+                //   상태     : 값 앞에 작은 색점
+                //   구매필요 : 모자란 쪽만 눈에 띄게
+                formatter: FORMATTERS[name],
             };
         }),
 
