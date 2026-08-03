@@ -45,17 +45,38 @@
         </header>
 
         <div class="container">
-            <div class="card">
-                <h2 style="margin-top:0">로그인 완료</h2>
-                <p class="caption" style="margin-bottom:0">
-                    화면을 하나씩 옮기는 중입니다. 다음은 <strong>BOQ 검색</strong>입니다.<br>
-                    옮길 항목은 <code>web/PORTING.md</code>에 정리돼 있습니다.
-                </p>
+            <h1 style="font-size:20px">🔎 BOQ 검색</h1>
+            <p class="caption">
+                PLC 그룹 없는 형태(예: LM101 BD001)와 포함된 형태(예: CC101 LM101 BD001)
+                둘 다 검색됩니다. 띄어쓰기와 대소문자는 무시합니다.
+            </p>
+
+            <div class="search-bar">
+                <input type="text" id="boq-input" placeholder="컨베이어 ID 입력 후 Enter" autocomplete="off">
+                <button id="boq-search-btn">조회</button>
             </div>
 
-            <p class="caption">
-                기존 Streamlit 앱도 그대로 쓰실 수 있습니다.
-            </p>
+            <p class="caption hidden" id="boq-status"></p>
+
+            <div id="boq-result" class="two-col hidden">
+                <!-- 왼쪽: 설계 스펙 -->
+                <div class="card" id="boq-spec"></div>
+
+                <!-- 오른쪽: 교체(사용) 이력 -->
+                <div class="card">
+                    <div class="card-head">
+                        <h2 style="margin:0">교체(사용) 이력 <span class="count" id="boq-history-count"></span></h2>
+                        <div class="card-actions">
+                            <select id="boq-sort">
+                                <option value="desc">최신순</option>
+                                <option value="asc">과거순</option>
+                            </select>
+                            <button class="secondary" id="boq-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <div id="boq-history-list"></div>
+                </div>
+            </div>
         </div>
     </div>
 

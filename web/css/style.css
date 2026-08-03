@@ -224,3 +224,147 @@ label {
     padding: 2px 8px;
     font-size: 12px;
 }
+
+/* 검색줄 */
+.search-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.search-bar input {
+    flex: 1;
+}
+
+/* 스펙과 이력을 좌우로 나란히. 화면이 좁으면 자동으로 위아래가 됩니다. */
+.two-col {
+    display: grid;
+    grid-template-columns: minmax(260px, 380px) 1fr;
+    gap: 14px;
+    align-items: start;
+}
+
+@media (max-width: 820px) {
+    .two-col {
+        grid-template-columns: 1fr;
+    }
+}
+
+.card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+
+.card-head h2 {
+    font-size: 17px;
+}
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.card-actions select {
+    width: auto;
+    padding: 6px 10px;
+}
+
+.card-actions button {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+.count {
+    color: var(--text-dim);
+    font-size: 14px;
+    font-weight: normal;
+}
+
+/* 설계 스펙 카드 */
+.spec-title {
+    margin: 0 0 8px;
+    font-size: 19px;
+}
+
+.badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 14px;
+}
+
+.badge-dim {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+}
+
+.spec-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+}
+
+.spec-row:last-child {
+    border-bottom: none;
+}
+
+.spec-label {
+    color: var(--text-dim);
+    flex-shrink: 0;
+}
+
+.spec-value {
+    text-align: right;
+    word-break: break-all;
+}
+
+/* 이력 타임라인 */
+.timeline-item {
+    border-left: 3px solid var(--primary);
+    background: var(--bg);
+    border-radius: 0 6px 6px 0;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+}
+
+.t-date {
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+.t-line {
+    font-size: 14px;
+    margin: 2px 0;
+}
+
+.t-key {
+    display: inline-block;
+    min-width: 38px;
+    color: var(--text-dim);
+    font-size: 12px;
+    margin-right: 6px;
+}
+
+.t-foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 6px;
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.t-foot:empty {
+    display: none;
+}
