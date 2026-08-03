@@ -13,6 +13,7 @@
     --link: #8FA9BE;
     --border: #2B3037;      /* 괘선 */
     --mark: #FFC400;        /* 안전황 - 선택됨·주의·포커스에만 */
+    --plate-line: #3E5C6E;  /* 명판 칸 테두리 - 강철빛 */
     --ok: #5FB98B;
     --warn: #FFC400;
     --error: #C4787F;
@@ -513,43 +514,39 @@ input[type="date"] {
     display: inline-flex;
     max-width: 100%;
     background: var(--plate);
-    border: 1px solid var(--border);
+    border: 1px solid var(--plate-line);
     border-radius: 3px;
-    overflow: hidden;
+    overflow-x: auto;
     margin-bottom: 14px;
 }
 
+/* 칸 너비는 내용에 맞춥니다. 억지로 같은 너비로 만들면 설비코드가 중간에서 잘려서
+   읽을 수가 없습니다. 대신 글자 크기와 여백을 똑같이 맞춰 판처럼 보이게 합니다. */
 .plate-field {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 9px 14px;
+    padding: 10px 16px;
     min-width: 0;
 }
 
 .plate-field + .plate-field {
-    border-left: 1px solid var(--border);
-}
-
-.plate-main {
-    flex: 1;
+    border-left: 1px solid var(--plate-line);
 }
 
 .plate-label {
     font-size: 10px;
     letter-spacing: 0.14em;
-    color: var(--text-dim);
+    color: #7E96A5;
 }
 
+/* 세 칸의 글자 크기를 같게 둡니다. 어느 하나가 커지면 나머지가 부속처럼 보입니다.
+   코드는 절대 줄바꿈하지 않습니다. 중간에서 끊기면 읽을 수 없는 값이라서요. */
 .plate-value {
     font-family: var(--mono);
-    font-size: 18px;
+    font-size: 22px;
     letter-spacing: 0.06em;
-    word-break: break-all;
-}
-
-.plate-main .plate-value {
-    font-size: 21px;
+    white-space: nowrap;
 }
 
 .badge-row {
@@ -695,14 +692,6 @@ dialog details summary {
 /* 명판은 두 칸 위에 넓게 놓입니다. 검색 결과에서 가장 먼저 읽히는 자리입니다. */
 #boq-plate:not(:empty) {
     margin: 4px 0 14px;
-}
-
-#boq-plate .plate-value {
-    font-size: 20px;
-}
-
-#boq-plate .plate-main .plate-value {
-    font-size: 26px;
 }
 
 /* 이력 아래쪽 출처·비고도 위 항목들과 같은 라벨 모양으로 맞춥니다. */
