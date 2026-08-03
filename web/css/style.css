@@ -313,6 +313,40 @@ label {
     font-weight: bold;
 }
 
+/* 입력칸을 두 칸씩 나란히 놓습니다. 좁은 화면에서는 한 줄에 하나가 됩니다. */
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 0 14px;
+}
+
+input[type="number"],
+input[type="date"] {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    width: 100%;
+}
+
+.ok-msg {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    background: rgba(74, 222, 128, 0.12);
+    border: 1px solid var(--ok);
+    border-radius: 6px;
+    color: var(--ok);
+    font-size: 13px;
+    white-space: pre-line;
+}
+
+.error-msg {
+    white-space: pre-line;
+}
+
 .warn-box {
     margin: 0 0 14px;
     padding: 10px 12px;

@@ -65,21 +65,25 @@ export async function getDashboardSummary() {
 }
 
 
-// 자재 목록 전체를 한글 컬럼명으로 바꿔서 가져옵니다.
-// Supabase는 한 번에 최대 1000건까지만 주므로, 1000건이 넘으면 나눠서 가져와야 합니다.
-export async function getMaterials() {
+// Supabase는 한 번에 최대 1000건까지만 돌려주므로, 그보다 많으면 나눠서 가져와야 합니다.
+// buildQuery는 부를 때마다 새 질의를 만들어주는 함수입니다.
+async function fetchAllRows(buildQuery) {
     const PAGE = 1000;
     const rows = [];
     for (let from = 0; ; from += PAGE) {
-        const { data, error } = await supabase
-            .from("materials")
-            .select("*")
-            .order("id")
-            .range(from, from + PAGE - 1);
+        const { data, error } = await buildQuery().range(from, from + PAGE - 1);
         if (error) throw error;
         rows.push(...data);
         if (data.length < PAGE) break;   // 마지막 페이지
     }
+    return rows;
+}
+
+
+// 자재 목록 전체를 한글 컬럼명으로 바꿔서 가져옵니다.
+export async function getMaterials() {
+    const rows = await fetchAllRows(() =>
+        supabase.from("materials").select("*").order("id"));
 
     return rows.map((row) => {
         const out = {};
@@ -88,6 +92,51 @@ export async function getMaterials() {
         out["구매필요"] = (row.standard_qty ?? 0) - (row.current_qty ?? 0);
         return out;
     });
+}
+
+
+// 사용(출고) 이력을 가져옵니다.
+// 입고 기록은 '구매 요청' 쪽에서 따로 관리하므로, 여기서는 출고만 DB에서 걸러서 받습니다.
+export async function getUsageHistory() {
+    const rows = await fetchAllRows(() =>
+        supabase
+            .from("history")
+            .select("occurred_on, quantity, manager, equipment_id, problem, action_taken, part_memo, note, materials(part_name)")
+            .eq("direction", "출고")
+            .order("id"));
+
+    return rows.map((row) => ({
+        일자: row.occurred_on,
+        "부품명(규격)": row.materials?.part_name ?? null,
+        수량: row.quantity,
+        "자재 출처": row.manager,
+        설비ID: row.equipment_id,
+        문제: row.problem,
+        조치: row.action_taken,
+        부품메모: row.part_memo,
+        비고: row.note,
+    }));
+}
+
+
+// 사용(출고)을 등록합니다.
+// 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성을 DB 함수 하나가 한 묶음으로
+// 처리하므로, 중간에 실패해서 일부만 반영되는 일이 없습니다. 규칙은 DB에 있으니
+// 여기서 다시 구현하지 않고 부르기만 합니다.
+export async function registerUsage(params) {
+    const { error } = await supabase.rpc("register_usage", {
+        p_occurred_on: params.occurredOn,
+        p_material_id: params.materialId,
+        p_quantity: params.quantity,
+        p_manager: params.manager,
+        p_note: params.note || null,
+        p_equipment_id: params.equipmentId || null,
+        p_problem: params.problem || null,
+        p_action_taken: params.actionTaken || null,
+        p_part_memo: params.partMemo || null,
+        p_deduct_stock: params.deductStock,
+    });
+    if (error) throw error;
 }
 
 

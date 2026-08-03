@@ -3,6 +3,7 @@ import { getSession, getRole, signIn, signOut, onAuthChange } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
 import * as boqPage from "./pages/boq.js";
 import * as materialsPage from "./pages/materials.js";
+import * as usagePage from "./pages/usage.js";
 
 const loadingView = document.getElementById("loading-view");
 const loginView = document.getElementById("login-view");
@@ -15,6 +16,7 @@ const loginError = document.getElementById("login-error");
 const PAGES = {
     boq: { load: null },
     materials: { load: () => materialsPage.load() },
+    usage: { load: () => usagePage.load() },
 };
 
 let currentPage = "boq";
@@ -125,6 +127,12 @@ for (const btn of document.querySelectorAll(".nav-btn")) {
 // 각 화면의 버튼 동작을 연결합니다. 로그인 여부와 상관없이 한 번만 하면 됩니다.
 boqPage.init();
 materialsPage.init();
+// 사용이력 표에서 설비를 고르면 그 ID로 BOQ 검색 화면으로 넘어가게 연결합니다.
+usagePage.init((equipmentId) => {
+    goToPage("boq");
+    document.getElementById("boq-input").value = equipmentId;
+    boqPage.search(equipmentId);
+});
 
 // 로그인/로그아웃이 일어나면 화면을 다시 그립니다. 다른 탭에서 로그아웃해도 여기로 들어옵니다.
 onAuthChange(render);

@@ -50,6 +50,7 @@
             <nav class="sidebar">
                 <button class="nav-btn" data-page="boq">🔎 BOQ 검색</button>
                 <button class="nav-btn" data-page="materials">📋 자재 목록</button>
+                <button class="nav-btn" data-page="usage">🔧 사용(출고) 이력</button>
             </nav>
 
             <main class="content">
@@ -111,6 +112,81 @@
                         컬럼 제목 아래 칸에 입력하면 걸러집니다. 엑셀은 화면에 보이는 결과 그대로 받습니다.
                         자재 수정/삭제는 아직 Streamlit 앱에서 하셔야 합니다.
                     </p>
+                </section>
+
+                <!-- ========== 사용(출고) 이력 ========== -->
+                <section class="page hidden" id="page-usage">
+                    <div class="card-head">
+                        <h1 class="page-title" style="margin:0">🔧 사용(출고) 이력 <span class="count" id="usage-count"></span></h1>
+                        <div class="card-actions">
+                            <button class="secondary" id="usage-reload-btn">새로고침</button>
+                            <button class="secondary" id="usage-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption">행을 클릭하면 그 설비 ID로 BOQ 검색으로 이동할 수 있습니다.</p>
+                    <p class="caption hidden" id="usage-status"></p>
+                    <div id="usage-table"></div>
+                    <p class="hidden" id="usage-jump" style="margin:10px 0">
+                        <button id="usage-jump-btn" data-equipment-id=""></button>
+                    </p>
+
+                    <hr>
+
+                    <h2>출고 등록</h2>
+                    <form id="usage-form" class="card">
+                        <div class="form-grid">
+                            <div>
+                                <label for="usage-category">카테고리로 먼저 좁히기</label>
+                                <select id="usage-category"></select>
+                            </div>
+                            <div>
+                                <label for="usage-part">부품명(규격) <span class="count" id="usage-part-count"></span></label>
+                                <select id="usage-part"></select>
+                            </div>
+                            <div>
+                                <label for="usage-qty">수량</label>
+                                <input type="number" id="usage-qty" min="1" step="1" value="1" required>
+                            </div>
+                            <div>
+                                <label for="usage-date">일자</label>
+                                <input type="date" id="usage-date" required>
+                            </div>
+                            <div>
+                                <label for="usage-source">자재 출처</label>
+                                <select id="usage-source"></select>
+                            </div>
+                            <div>
+                                <label for="usage-custom-source">직접 입력</label>
+                                <input type="text" id="usage-custom-source" class="hidden" placeholder="출처를 입력하세요">
+                            </div>
+                        </div>
+                        <p class="caption" id="usage-source-hint"></p>
+
+                        <div class="form-grid">
+                            <div>
+                                <label for="usage-equipment">설비 ID (예: LD451 RK003)</label>
+                                <input type="text" id="usage-equipment" autocomplete="off">
+                            </div>
+                            <div>
+                                <label for="usage-problem">문제/고장 내역</label>
+                                <input type="text" id="usage-problem">
+                            </div>
+                            <div>
+                                <label for="usage-action">조치 내역</label>
+                                <input type="text" id="usage-action">
+                            </div>
+                            <div>
+                                <label for="usage-memo">부품 메모</label>
+                                <input type="text" id="usage-memo">
+                            </div>
+                        </div>
+
+                        <label for="usage-note">비고 (그 외 자유 메모)</label>
+                        <input type="text" id="usage-note">
+
+                        <button type="submit" id="usage-submit-btn" style="margin-top:16px">등록하기</button>
+                        <p class="caption hidden" id="usage-form-status"></p>
+                    </form>
                 </section>
             </main>
         </div>
