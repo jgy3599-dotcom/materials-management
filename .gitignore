@@ -4,3 +4,5 @@ __pycache__/
 부품관리.xlsx
 electric_category_duplicates.txt
 streamlit_run.log
+# Playwright가 받아둔 브라우저 (개발용, 저장소에 올릴 필요 없음)
+ms-playwright/
