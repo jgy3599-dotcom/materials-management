@@ -11,6 +11,35 @@ import { downloadExcel } from "./excel.js";
 const tables = new Map();
 
 
+// 그 칸이 어떤 성격인지 값들을 보고 정합니다. 화면마다 컬럼 목록을 따로 적어두면
+// 나중에 컬럼이 늘 때 빠뜨리기 쉬워서, 표가 알아서 판단하게 했습니다.
+//
+//   number : 전부 숫자. 크기를 견주는 값이라 오른쪽에 자릿수를 맞춥니다.
+//   code   : 발주코드·창고번호처럼 숫자가 섞인 식별자. 읽기만 편하게 코드 글꼴을 씁니다.
+//            크기를 견주는 값이 아니라 오른쪽으로 밀지는 않습니다.
+//   text   : 그 외. 손대지 않습니다.
+//
+// 행이 수천 개일 수 있어 앞쪽 일부만 봅니다. 성격을 가리는 데는 그 정도면 충분합니다.
+function columnKind(rows, name) {
+    const values = [];
+    for (const row of rows) {
+        const v = row[name];
+        if (v !== null && v !== undefined && String(v).trim() !== "") values.push(v);
+        if (values.length >= 200) break;
+    }
+    if (values.length === 0) return "text";
+
+    if (values.every((v) => typeof v === "number")) return "number";
+
+    // 한글이 두 글자 이상 이어지면 낱말로 봅니다. 숫자가 섞인 식별자만 코드로 칩니다.
+    // 값이 섞여 있을 수 있어 다수결(8할)로 정합니다.
+    const codeish = values.filter(
+        (v) => /\d/.test(String(v)) && !/[가-힣]{2,}/.test(String(v)),
+    );
+    return codeish.length >= values.length * 0.8 ? "code" : "text";
+}
+
+
 // 표를 그립니다.
 //   elementId : 표를 넣을 자리의 id
 //   rows      : {컬럼명: 값} 형태의 객체 배열
@@ -27,12 +56,14 @@ export function renderTable(elementId, rows, columns, options = {}) {
 
     const table = new Tabulator(`#${elementId}`, {
         data: rows,
-        layout: "fitDataStretch",
+        // fitDataStretch는 남는 폭을 마지막 칸에 몰아줘서, 컬럼이 적은 표에서 끝 칸만
+        // 터무니없이 넓어집니다. fitDataFill은 칸을 내용에 맞추고 남는 폭은 빈 자리로 둡니다.
+        layout: "fitDataFill",
         placeholder: "표시할 데이터가 없습니다",
 
         // 스크롤 대신 페이지로 나눠 보여줍니다.
         // 스크롤 방식은 "화면에 보이는 행만 그리는" 계산을 하는데, 표의 크기를 잘못 재면
-        // 행이 하나도 안 그려지는 문제가 있었습니다. 페이지 방식은 한 번에 50줄만 그리므로
+        // 행이 하나도 안 그려지는 문제가 있었습니다. 페이지 방식은 한 쪽 분량만 그리므로
         // 그 계산 자체가 필요 없어 훨씬 안정적이고, 첫 표시도 빠릅니다.
         pagination: true,
         paginationSize: pageSize,
@@ -40,14 +71,22 @@ export function renderTable(elementId, rows, columns, options = {}) {
         paginationCounter: "rows",
 
         selectableRows: selectable ? 1 : false,
-        columns: columns.map((name) => ({
-            title: name,
-            field: name,
-            headerFilter: "input",       // 컬럼 제목 아래 필터 입력칸
-            headerFilterPlaceholder: "검색",
-            resizable: true,
-            headerSort: true,
-        })),
+        columns: columns.map((name) => {
+            const kind = columnKind(rows, name);
+            return {
+                title: name,
+                field: name,
+                headerFilter: "input",       // 컬럼 제목 아래 필터 입력칸
+                headerFilterPlaceholder: "검색",
+                resizable: true,
+                headerSort: true,
+                // 숫자는 오른쪽에 자릿수를 맞춥니다. 왼쪽에 붙어 있으면 100과 5 중
+                // 어느 쪽이 큰지 한눈에 안 들어옵니다.
+                hozAlign: kind === "number" ? "right" : "left",
+                headerHozAlign: kind === "number" ? "right" : "left",
+                cssClass: kind === "text" ? undefined : "cell-mono",
+            };
+        }),
 
         locale: "ko",
         langs: {
@@ -58,6 +97,8 @@ export function renderTable(elementId, rows, columns, options = {}) {
                     prev: "이전", prev_title: "이전 페이지",
                     next: "다음", next_title: "다음 페이지",
                     all: "전체",
+                    page_size: "표시 개수",
+                    page_title: "쪽",
                     counter: { showing: "", of: "/", rows: "건", pages: "페이지" },
                 },
                 data: { loading: "불러오는 중...", error: "오류가 났습니다" },

@@ -470,6 +470,14 @@ input[type="date"] {
     font-size: 12px;
 }
 
+/* 숫자·코드 칸은 코드용 글꼴로 씁니다. 자릿수가 고정되어 위아래 값이 나란히 서고,
+   0과 O도 헷갈리지 않습니다.
+   머리글이 아니라 칸(.tabulator-cell)에만 걸어서 한글 컬럼명은 그대로 둡니다. */
+.tabulator .tabulator-cell.cell-mono {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+}
+
 /* 페이지 넘김 줄 */
 .tabulator .tabulator-footer {
     background: var(--bg-side);
