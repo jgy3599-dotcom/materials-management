@@ -112,6 +112,30 @@ export async function getMaterials() {
 }
 
 
+// 자재를 새로 등록하고, 만들어진 id를 돌려줍니다.
+export async function insertMaterial(data) {
+    const { data: rows, error } = await supabase.from("materials").insert(data).select("id");
+    if (error) throw error;
+    return rows[0].id;
+}
+
+
+// 자재를 등록/수정/삭제할 때마다 남기는 감사 로그입니다.
+// actor_email은 앱이 보내는 값을 DB가 그대로 믿지 않고 실제 로그인한 사람과 같은지
+// 검증하므로(RLS), 반드시 지금 로그인한 이메일을 넣어야 합니다.
+export async function insertAuditLog(actorEmail, action, materialId, partName, beforeData, afterData = null) {
+    const { error } = await supabase.from("audit_log").insert({
+        actor_email: actorEmail,
+        action,
+        material_id: materialId,
+        part_name: partName,
+        before_data: beforeData,
+        after_data: afterData,
+    });
+    if (error) throw error;
+}
+
+
 // 사용(출고) 이력을 가져옵니다.
 // 입고 기록은 '구매 요청' 쪽에서 따로 관리하므로, 여기서는 출고만 DB에서 걸러서 받습니다.
 export async function getUsageHistory() {

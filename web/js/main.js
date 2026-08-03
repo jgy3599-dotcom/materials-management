@@ -7,6 +7,8 @@ import * as materialsPage from "./pages/materials.js";
 import * as usagePage from "./pages/usage.js";
 import * as purchasePage from "./pages/purchase.js";
 import * as repairsPage from "./pages/repairs.js";
+import * as registerPage from "./pages/register.js";
+import * as alertPage from "./pages/alert.js";
 
 const loadingView = document.getElementById("loading-view");
 const loginView = document.getElementById("login-view");
@@ -24,6 +26,8 @@ const PAGES = {
     usage: { load: () => usagePage.load(), tableId: "usage-table" },
     purchase: { load: () => purchasePage.load(), tableId: "purchase-requests-table" },
     repairs: { load: () => repairsPage.load(), tableId: "repairs-table" },
+    register: { load: () => registerPage.load(), tableId: null },
+    alert: { load: () => alertPage.load(), tableId: "alert-table" },
 };
 
 let currentPage = "boq";
@@ -91,6 +95,7 @@ function render(session) {
         document.getElementById("user-email").textContent = session.user.email;
         document.getElementById("user-role").textContent = getRole(session);
         purchasePage.setUser(session, isAdmin(session));
+        registerPage.setUser(session, isAdmin(session));
         show(appView);
         loadSummary();
         goToPage(currentPage);
@@ -138,6 +143,8 @@ boqPage.init();
 materialsPage.init();
 purchasePage.init();
 repairsPage.init();
+registerPage.init();
+alertPage.init();
 // 사용이력 표에서 설비를 고르면 그 ID로 BOQ 검색 화면으로 넘어가게 연결합니다.
 usagePage.init((equipmentId) => {
     goToPage("boq");

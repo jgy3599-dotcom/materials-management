@@ -53,6 +53,8 @@
                 <button class="nav-btn" data-page="usage">🔧 사용(출고) 이력</button>
                 <button class="nav-btn" data-page="purchase">🛒 구매 요청</button>
                 <button class="nav-btn" data-page="repairs">🧰 수리 관리</button>
+                <button class="nav-btn" data-page="register">➕ 자재 등록</button>
+                <button class="nav-btn" data-page="alert">⚠️ 구매 필요 알림</button>
             </nav>
 
             <main class="content">
@@ -305,6 +307,90 @@
                         <h2>반납 이력</h2>
                         <div id="repair-returns-table"></div>
                     </div>
+                </section>
+
+                <!-- ========== 자재 등록 ========== -->
+                <section class="page hidden" id="page-register">
+                    <h1 class="page-title">➕ 자재 등록</h1>
+                    <p class="caption hidden" id="reg-status"></p>
+
+                    <form id="reg-form" class="card">
+                        <label for="reg-category">카테고리</label>
+                        <select id="reg-category"></select>
+
+                        <div id="reg-new-category-box" class="hidden">
+                            <label for="reg-new-category">새 카테고리명</label>
+                            <input type="text" id="reg-new-category">
+                        </div>
+
+                        <div class="form-grid">
+                            <div>
+                                <label for="reg-part">부품명(규격)</label>
+                                <input type="text" id="reg-part" required>
+                            </div>
+                            <div>
+                                <label for="reg-subtype">구분 (선택, 예: 베어링/키/풀리)</label>
+                                <input type="text" id="reg-subtype">
+                            </div>
+                            <div>
+                                <label for="reg-order-code">발주코드 (선택, 외산(TAMS)에서 사용)</label>
+                                <input type="text" id="reg-order-code">
+                            </div>
+                            <div>
+                                <label for="reg-warehouse">창고번호 (선택, 모터/전기/외산에서 사용)</label>
+                                <input type="text" id="reg-warehouse">
+                            </div>
+                            <div>
+                                <label for="reg-location">설치위치</label>
+                                <input type="text" id="reg-location">
+                            </div>
+                            <div>
+                                <label for="reg-manufacturer">제조사</label>
+                                <input type="text" id="reg-manufacturer" value="-">
+                            </div>
+                            <div>
+                                <label for="reg-vendor">거래처</label>
+                                <input type="text" id="reg-vendor" value="-">
+                            </div>
+                            <div>
+                                <label for="reg-in-use">적용수량</label>
+                                <input type="number" id="reg-in-use" min="0" step="1" value="0">
+                            </div>
+                            <div>
+                                <label for="reg-standard">표준재고</label>
+                                <input type="number" id="reg-standard" min="0" step="1" value="0">
+                            </div>
+                            <div>
+                                <label for="reg-current">현재재고</label>
+                                <input type="number" id="reg-current" min="0" step="1" value="0">
+                            </div>
+                        </div>
+
+                        <label for="reg-note">비고</label>
+                        <input type="text" id="reg-note">
+
+                        <button type="submit" id="reg-submit-btn" style="margin-top:16px">등록하기</button>
+                        <p class="caption hidden" id="reg-form-status"></p>
+                    </form>
+                </section>
+
+                <!-- ========== 구매 필요 알림 ========== -->
+                <section class="page hidden" id="page-alert">
+                    <div class="card-head">
+                        <h1 class="page-title" style="margin:0">⚠️ 구매가 필요한 자재 <span class="count" id="alert-count"></span></h1>
+                        <div class="card-actions">
+                            <select id="alert-category"></select>
+                            <button class="secondary" id="alert-reload-btn">새로고침</button>
+                            <button class="secondary" id="alert-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption">표준재고보다 부족한 자재입니다. 부족한 정도가 큰 것부터 보여줍니다.</p>
+                    <p class="caption hidden" id="alert-status"></p>
+                    <div id="alert-table"></div>
+                    <p class="caption">
+                        알림 메일 발송은 아직 옮기지 않았습니다. 브라우저에서는 메일 서버에 직접 접속할 수 없어
+                        별도 작업이 필요합니다. 그동안은 기존 Streamlit 앱에서 보내주세요.
+                    </p>
                 </section>
             </main>
         </div>
