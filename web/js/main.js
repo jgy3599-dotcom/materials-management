@@ -33,12 +33,15 @@ async function run() {
     }
 
     // 4) 실제로 Supabase 서버까지 닿는지
+    // 여기서 실패해도 아래 검사는 계속합니다. 한 줄이 "확인 중..."으로 멈춰 있으면
+    // 뭐가 문제인지 알기 어려워서, 끝까지 다 보여주는 편이 낫습니다.
+    let connected = false;
     try {
         await checkConnection();
+        connected = true;
         setCheck("c-conn", "ok", "서버 응답 정상");
     } catch (e) {
         setCheck("c-conn", "error", String(e.message || e));
-        return;
     }
 
     // 5) 지금 로그인된 상태인지 (아직 로그인 화면이 없어서 보통 "없음"이 정상입니다)
@@ -49,8 +52,9 @@ async function run() {
         setCheck("c-session", "warn", "아직 로그인 안 함 (다음 단계에서 만듭니다)");
     }
 
-    document.getElementById("result").textContent =
-        "밑바탕 확인 완료. 다음 단계는 로그인 화면입니다.";
+    document.getElementById("result").textContent = connected
+        ? "밑바탕 확인 완료. 다음 단계는 로그인 화면입니다."
+        : "Supabase 연결에 문제가 있습니다. 위 오류 내용을 알려주세요.";
 }
 
 run();
