@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>자재관리 시스템 (웹)</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>📦 자재관리 시스템</h1>
+        <p class="caption">웹 버전 · 배포 확인 페이지</p>
+
+        <hr>
+
+        <h2>밑바탕 점검</h2>
+        <div class="card">
+            <div class="check" id="c-page">
+                <span class="mark warn">⏳</span>
+                <span class="name">페이지 열림</span>
+                <span class="detail">확인 중...</span>
+            </div>
+            <div class="check" id="c-config">
+                <span class="mark warn">⏳</span>
+                <span class="name">설정 파일 (config.js)</span>
+                <span class="detail">확인 중...</span>
+            </div>
+            <div class="check" id="c-lib">
+                <span class="mark warn">⏳</span>
+                <span class="name">Supabase 라이브러리 (CDN)</span>
+                <span class="detail">확인 중...</span>
+            </div>
+            <div class="check" id="c-conn">
+                <span class="mark warn">⏳</span>
+                <span class="name">Supabase 서버 연결</span>
+                <span class="detail">확인 중...</span>
+            </div>
+            <div class="check" id="c-session">
+                <span class="mark warn">⏳</span>
+                <span class="name">로그인 상태</span>
+                <span class="detail">확인 중...</span>
+            </div>
+        </div>
+
+        <p class="caption" id="result"></p>
+
+        <hr>
+        <p class="caption">
+            기존 Streamlit 앱은 그대로 쓰실 수 있습니다. 이 페이지는 화면을 하나씩 옮겨가는
+            중간 결과물이며, 옮기는 항목은 <code>web/PORTING.md</code>에 정리돼 있습니다.
+        </p>
+    </div>
+
+    <script type="module" src="js/main.js"></script>
+</body>
+</html>

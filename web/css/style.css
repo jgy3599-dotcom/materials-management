@@ -1,0 +1,157 @@
+/* Streamlit 앱(.streamlit/config.toml)에 쓴 다크 네이비 테마와 같은 색을 씁니다.
+   두 화면을 오갈 때 이질감이 없도록 색상값을 그대로 맞췄습니다. */
+:root {
+    --bg: #0F172A;
+    --bg-2: #1E293B;
+    --bg-side: #131C2E;
+    --text: #E2E8F0;
+    --text-dim: #94A3B8;
+    --primary: #5B7FA6;
+    --link: #7B9BC7;
+    --border: #334155;
+    --ok: #4ADE80;
+    --warn: #FBBF24;
+    --error: #F87171;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Malgun Gothic", "맑은 고딕", -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px 20px 60px;
+}
+
+h1 {
+    font-size: 26px;
+    margin: 0 0 4px;
+}
+
+h2 {
+    font-size: 19px;
+    margin: 28px 0 12px;
+}
+
+.caption {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin: 0 0 20px;
+}
+
+hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 24px 0;
+}
+
+a {
+    color: var(--link);
+}
+
+/* 카드 */
+.card {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 12px;
+}
+
+/* 점검 항목 한 줄 */
+.check {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.check:last-child {
+    border-bottom: none;
+}
+
+.check .mark {
+    width: 22px;
+    text-align: center;
+    font-size: 16px;
+}
+
+.check .name {
+    flex: 1;
+}
+
+.check .detail {
+    color: var(--text-dim);
+    font-size: 13px;
+}
+
+.ok    { color: var(--ok); }
+.warn  { color: var(--warn); }
+.error { color: var(--error); }
+
+/* 버튼 */
+button {
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 9px 16px;
+    font-size: 14px;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+button:hover {
+    filter: brightness(1.12);
+}
+
+button:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+button.secondary {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+}
+
+/* 입력칸 */
+input[type="text"],
+input[type="password"],
+input[type="email"],
+select {
+    background: var(--bg);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 9px 12px;
+    font-size: 14px;
+    font-family: inherit;
+    width: 100%;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: var(--primary);
+}
+
+label {
+    display: block;
+    font-size: 13px;
+    color: var(--text-dim);
+    margin: 12px 0 5px;
+}
