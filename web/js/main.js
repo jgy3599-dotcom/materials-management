@@ -1,6 +1,7 @@
 // 화면 전환(로그인 ↔ 앱, 메뉴 간 이동)을 담당합니다.
 import { getSession, getRole, signIn, signOut, onAuthChange } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
+import { redrawTable } from "./table.js";
 import * as boqPage from "./pages/boq.js";
 import * as materialsPage from "./pages/materials.js";
 import * as usagePage from "./pages/usage.js";
@@ -13,10 +14,12 @@ const loginBtn = document.getElementById("login-btn");
 const loginError = document.getElementById("login-error");
 
 // 메뉴 이름과, 그 메뉴를 열 때 할 일을 짝지어 둡니다.
+// tableId를 적어두면, 그 화면으로 돌아올 때 표를 다시 그려줍니다.
+// 숨어 있는 동안에는 표의 크기가 0이라 그냥 두면 행이 안 보입니다.
 const PAGES = {
-    boq: { load: null },
-    materials: { load: () => materialsPage.load() },
-    usage: { load: () => usagePage.load() },
+    boq: { load: null, tableId: null },
+    materials: { load: () => materialsPage.load(), tableId: "materials-table" },
+    usage: { load: () => usagePage.load(), tableId: "usage-table" },
 };
 
 let currentPage = "boq";
@@ -53,6 +56,7 @@ function goToPage(name) {
     }
 
     PAGES[name].load?.();
+    if (PAGES[name].tableId) redrawTable(PAGES[name].tableId);
 }
 
 

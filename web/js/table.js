@@ -47,8 +47,24 @@ export function renderTable(elementId, rows, columns, options = {}) {
         table.on("rowClick", (_e, row) => onRowClick(row.getData()));
     }
 
+    // 표를 다 만든 뒤에 한 번 다시 그립니다.
+    // 화면에 보이는 행만 그리는 방식이라, 만드는 시점에 표의 크기를 잘못 재면 행이 하나도
+    // 안 그려집니다(머리글과 스크롤바만 보이고 안이 비어 보임). 브라우저가 배치를 끝낸
+    // 다음 다시 그리게 해서 이걸 막습니다.
+    table.on("tableBuilt", () => {
+        requestAnimationFrame(() => table.redraw(true));
+    });
+
     tables.set(elementId, table);
     return table;
+}
+
+
+// 숨겨져 있던 표가 다시 보이게 됐을 때 부릅니다.
+// 숨어 있는 동안에는 크기가 0이라, 그대로 두면 역시 행이 안 그려집니다.
+export function redrawTable(elementId) {
+    const table = tables.get(elementId);
+    if (table) requestAnimationFrame(() => table.redraw(true));
 }
 
 
