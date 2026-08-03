@@ -478,6 +478,23 @@ input[type="date"] {
     font-variant-numeric: tabular-nums;
 }
 
+/* 상태 표시. 글자는 그대로 두고 앞에 작은 점만 색을 씁니다.
+   칸을 통째로 물들이면 표가 시끄러워지고, 정작 어느 줄을 봐야 하는지가 안 보입니다. */
+.status::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 7px;
+    vertical-align: middle;
+    background: currentColor;
+}
+
+.status-done { color: var(--ok); }      /* 입고완료 · 복귀완료 */
+.status-stop { color: var(--error); }   /* 반려됨 */
+.status-open { color: var(--link); }    /* 아직 할 일이 남은 것 */
+
 /* 페이지 넘김 줄 */
 .tabulator .tabulator-footer {
     background: var(--bg-side);

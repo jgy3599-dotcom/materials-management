@@ -6,6 +6,28 @@
 // 게다가 화면에 보이는 부분만 그려서, 수천 건짜리 표도 느려지지 않습니다.
 import { TabulatorFull as Tabulator } from "https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/js/tabulator_esm.min.js";
 import { downloadExcel } from "./excel.js";
+import { esc } from "./ui.js";
+
+
+// 상태값을 성격별로 나눕니다. 표를 훑을 때 "끝난 것"과 "아직 할 일이 남은 것"이
+// 구분돼야 눈이 갈 데를 찾습니다. 여기 없는 값은 색 없이 그대로 나옵니다.
+//
+// 노랑(--mark)은 쓰지 않습니다. 그 색은 "지금 여기"와 "확인 필요"를 가리키는 신호로
+// 아껴두고 있는데, 표에 수백 칸이 노랗게 깔리면 그 뜻이 묻힙니다.
+const STATUS_KIND = {
+    // 끝남
+    "입고완료": "done",
+    "복귀완료": "done",
+    // 멈춤
+    "반려됨": "stop",
+    // 진행 중 (아직 누군가 해야 할 일이 남음)
+    "요청됨": "open",
+    "검토중": "open",
+    "승인됨": "open",
+    "구매중": "open",
+    "수리중": "open",
+    "일부 복귀": "open",
+};
 
 // 화면에서 필터·정렬한 결과를 그대로 엑셀로 내보내기 위해, 만든 표를 기억해둡니다.
 const tables = new Map();
@@ -37,6 +59,17 @@ function columnKind(rows, name) {
         (v) => /\d/.test(String(v)) && !/[가-힣]{2,}/.test(String(v)),
     );
     return codeish.length >= values.length * 0.8 ? "code" : "text";
+}
+
+
+// '상태' 칸을 그립니다. DB에서 온 값이라 화면에 넣기 전에 특수문자를 무해하게 바꿉니다.
+function statusFormatter(cell) {
+    const value = cell.getValue();
+    if (value === null || value === undefined || String(value).trim() === "") return "";
+
+    const text = esc(value);
+    const kind = STATUS_KIND[String(value).trim()];
+    return kind ? `<span class="status status-${kind}">${text}</span>` : text;
 }
 
 
@@ -80,11 +113,18 @@ export function renderTable(elementId, rows, columns, options = {}) {
                 headerFilterPlaceholder: "검색",
                 resizable: true,
                 headerSort: true,
+                // 내용이 짧아도 이만큼은 줍니다. 안 그러면 id 같은 칸이 너무 좁아져
+                // 아래 필터 입력칸에 글자가 다 안 들어갑니다.
+                minWidth: 84,
                 // 숫자는 오른쪽에 자릿수를 맞춥니다. 왼쪽에 붙어 있으면 100과 5 중
                 // 어느 쪽이 큰지 한눈에 안 들어옵니다.
                 hozAlign: kind === "number" ? "right" : "left",
                 headerHozAlign: kind === "number" ? "right" : "left",
                 cssClass: kind === "text" ? undefined : "cell-mono",
+                // '상태' 칸은 값 앞에 작은 색점을 붙여 성격을 구분합니다.
+                // 글자까지 물들이지 않고 점만 쓰는 것은, 표가 색으로 시끄러워지지 않게
+                // 하면서도 훑을 때는 눈에 걸리게 하려는 것입니다.
+                formatter: name === "상태" ? statusFormatter : undefined,
             };
         }),
 
@@ -116,6 +156,11 @@ export function renderTable(elementId, rows, columns, options = {}) {
     // 다음 다시 그리게 해서 이걸 막습니다.
     table.on("tableBuilt", () => {
         requestAnimationFrame(() => table.redraw(true));
+
+        // 칸 너비는 글자를 실제로 재서 정해집니다. 그런데 웹에서 받아오는 글꼴은 표보다
+        // 늦게 도착할 수 있어서, 그 전에 재면 좁게 굳은 채로 값이 잘립니다
+        // (날짜가 "2026-07-…"로 나오던 문제). 글꼴이 다 온 뒤에 한 번 더 재게 합니다.
+        document.fonts?.ready.then(() => table.redraw(true));
     });
 
     tables.set(elementId, table);
