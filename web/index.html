@@ -4,6 +4,12 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>자재관리 시스템</title>
+    <!-- IBM Plex: 기술·엔지니어링 환경용으로 만들어진 서체입니다. 한글도 정식 지원하고,
+         Mono는 0과 O, 1과 l이 확실히 구분돼서 설비코드·부품번호를 읽을 때 헷갈리지 않습니다.
+         회사망이 이 주소를 막으면 컴퓨터 기본 글꼴로 표시되며, 화면은 그대로 동작합니다. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/css/tabulator_midnight.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
@@ -80,6 +86,9 @@
                     </div>
 
                     <p class="caption hidden" id="boq-status"></p>
+
+                    <!-- 찾은 설비의 명판. 검색 결과의 주인공이라 두 칸 위에 넓게 둡니다. -->
+                    <div id="boq-plate"></div>
 
                     <div id="boq-result" class="two-col hidden">
                         <div class="card" id="boq-spec"></div>

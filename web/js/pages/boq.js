@@ -24,9 +24,58 @@ function hasValue(v) {
 }
 
 
-// 설계 스펙 카드를 그립니다. 값이 없는 항목은 아예 그리지 않아서 화면이 짧아집니다.
-function renderSpec(boq) {
+// 명판에 따로 표시하는 항목들입니다. 아래 스펙 목록에서는 빠집니다.
+const PLATE_FIELDS = ["conveyor_id", "conveyor_id_with_plc", "location_1", "location_2"];
+
+
+// PLC 그룹을 떼어냅니다.
+// conveyor_id_with_plc("CC101 LM101 BD001")는 conveyor_id("LM101 BD001") 앞에 그룹 코드가
+// 붙은 형태라, 앞쪽 남는 부분이 그룹입니다. 그룹이 없는 설비도 있어 그때는 null입니다.
+function plcGroupOf(boq) {
+    const full = (boq.conveyor_id_with_plc ?? "").trim();
+    const id = (boq.conveyor_id ?? "").trim();
+    if (!full || !id) return null;
+
+    const fullParts = full.split(/\s+/);
+    const idParts = id.split(/\s+/);
+    if (fullParts.length <= idParts.length) return null;
+
+    return fullParts.slice(0, fullParts.length - idParts.length).join(" ");
+}
+
+
+// 설계 스펙을 그립니다.
+// 위쪽은 설비를 가리키는 코드를 명판처럼 보여주고, 아래는 값이 있는 항목만 줄지어 놓습니다.
+// 비어 있는 항목을 지우면 실제로 볼 것만 남아 화면이 훨씬 짧아집니다.
+function renderSpec(boq, searchTerm) {
+    const plateBox = document.getElementById("boq-plate");
     const box = document.getElementById("boq-spec");
+
+    // 명판은 스펙이 없어도 띄웁니다. BOQ에 없는 설비라도 "무엇을 찾았는지"는 보여야 하고,
+    // 아래 교체 이력은 그 ID로 계속 조회하기 때문입니다.
+    const plc = boq ? plcGroupOf(boq) : null;
+    const idText = boq ? boq[BOQ_TITLE_FIELD] : searchTerm;
+    // 위치도 명판에 올립니다. 설비를 가리키는 정보라 스펙 목록보다 여기가 제자리입니다.
+    const place = boq
+        ? [boq.location_1, boq.location_2].filter((v) => hasValue(v)).join(" ")
+        : "";
+    plateBox.innerHTML = `
+        <div class="plate">
+            ${plc ? `
+            <div class="plate-field">
+                <span class="plate-label">PLC 그룹</span>
+                <span class="plate-value">${esc(plc)}</span>
+            </div>` : ""}
+            <div class="plate-field plate-main">
+                <span class="plate-label">컨베이어 ID</span>
+                <span class="plate-value">${esc(idText)}</span>
+            </div>
+            ${place ? `
+            <div class="plate-field">
+                <span class="plate-label">위치</span>
+                <span class="plate-value">${esc(place)}</span>
+            </div>` : ""}
+        </div>`;
 
     if (!boq) {
         box.innerHTML = `<p class="caption">해당 ID의 BOQ(설계 스펙) 정보가 없습니다.</p>`;
@@ -39,7 +88,7 @@ function renderSpec(boq) {
         .join("");
 
     const rows = Object.keys(BOQ_LABELS)
-        .filter((f) => f !== BOQ_TITLE_FIELD && !BOQ_BADGE_FIELDS.includes(f) && hasValue(boq[f]))
+        .filter((f) => !PLATE_FIELDS.includes(f) && !BOQ_BADGE_FIELDS.includes(f) && hasValue(boq[f]))
         .map((f) => `
             <div class="spec-row">
                 <span class="spec-label">${esc(BOQ_LABELS[f])}</span>
@@ -47,10 +96,8 @@ function renderSpec(boq) {
             </div>`)
         .join("");
 
-    box.innerHTML = `
-        <h2 class="spec-title">${esc(boq[BOQ_TITLE_FIELD])}</h2>
-        <div class="badge-row">${badges}</div>
-        ${rows || '<p class="caption">표시할 스펙 항목이 없습니다.</p>'}`;
+    box.innerHTML = (badges ? `<div class="badge-row">${badges}</div>` : "")
+        + (rows || '<p class="caption">표시할 스펙 항목이 없습니다.</p>');
 }
 
 
@@ -75,8 +122,9 @@ function renderHistory() {
     );
 
     listBox.innerHTML = sorted.map((h) => {
+        // 부품명과 수량은 코드용 글꼴로 보여줍니다. 규격에 숫자가 많아 그쪽이 읽기 낫습니다.
         const part = hasValue(h["부품명(규격)"])
-            ? `${esc(h["부품명(규격)"])}${hasValue(h.수량) ? ` × ${esc(h.수량)}` : ""}`
+            ? `<span class="t-part">${esc(h["부품명(규격)"])}${hasValue(h.수량) ? ` × ${esc(h.수량)}` : ""}</span>`
             : "";
         return `
             <div class="timeline-item">
@@ -86,8 +134,8 @@ function renderHistory() {
                 ${part ? `<div class="t-line"><span class="t-key">부품</span>${part}</div>` : ""}
                 ${hasValue(h.부품메모) ? `<div class="t-line"><span class="t-key">메모</span>${esc(h.부품메모)}</div>` : ""}
                 <div class="t-foot">
-                    ${hasValue(h["자재 출처"]) ? `<span>📦 ${esc(h["자재 출처"])}</span>` : ""}
-                    ${hasValue(h.비고) ? `<span>📝 ${esc(h.비고)}</span>` : ""}
+                    ${hasValue(h["자재 출처"]) ? `<span><span class="t-key">출처</span>${esc(h["자재 출처"])}</span>` : ""}
+                    ${hasValue(h.비고) ? `<span><span class="t-key">비고</span>${esc(h.비고)}</span>` : ""}
                 </div>
             </div>`;
     }).join("");
@@ -109,6 +157,7 @@ export async function search(rawInput) {
     currentSearch = term;
     setStatus("찾는 중...");
     document.getElementById("boq-result").classList.add("hidden");
+    document.getElementById("boq-plate").innerHTML = "";
 
     try {
         // 스펙이 없어도(BOQ에 애초에 없는 설비) 교체이력은 있을 수 있으므로,
@@ -121,7 +170,7 @@ export async function search(rawInput) {
 
         currentHistory = await getEquipmentHistory(equipmentId);
 
-        renderSpec(boq);
+        renderSpec(boq, term);
         renderHistory();
         setStatus("");
         document.getElementById("boq-result").classList.remove("hidden");
