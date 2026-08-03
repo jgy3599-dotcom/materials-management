@@ -286,6 +286,84 @@ export async function getPurchaseHistory() {
 }
 
 
+// ---------------------------------------------------------------------------
+// 수리 관리
+// 수리 건은 여기서 새로 만들지 않습니다. 사용(출고) 등록 시 자재출처가 한진 SPARE나
+// 한진 구매품이면 register_usage가 자동으로 만들어 줍니다.
+// ---------------------------------------------------------------------------
+
+// 수리 목록을 반납 합계와 함께 가져옵니다.
+// 상태는 저장된 값이 아니라, 보낸 수량과 반납 합계를 비교해서 그때그때 계산합니다.
+export async function getRepairs() {
+    const [repairs, returns] = await Promise.all([
+        fetchAllRows((opts) =>
+            supabase.from("repairs").select("*, materials(part_name)", opts).order("id", { ascending: false })),
+        fetchAllRows((opts) =>
+            supabase.from("repair_returns").select("repair_id, returned_qty", opts).order("id")),
+    ]);
+
+    const returnedBy = new Map();
+    for (const r of returns) {
+        returnedBy.set(r.repair_id, (returnedBy.get(r.repair_id) ?? 0) + r.returned_qty);
+    }
+
+    return repairs.map((row) => {
+        const sent = row.quantity;
+        const returned = returnedBy.get(row.id) ?? 0;
+        const status = returned <= 0 ? "수리중" : returned < sent ? "일부 복귀" : "복귀완료";
+        return {
+            id: row.id,
+            material_id: row.material_id,
+            // material_id가 없는 건(자재목록에 없는 부품)은 item_description을 대신 보여줍니다.
+            "부품명(규격)": row.materials?.part_name ?? row.item_description,
+            보낸수량: sent,
+            반납수량: returned,
+            상태: status,
+            보낸날짜: row.sent_on,
+            보낸곳: row.vendor,
+            사유: row.reason,
+            예상복귀일: row.expected_return_date,
+            비고: row.note,
+        };
+    });
+}
+
+
+// 수리 건 하나의 반납 기록(회차별)을 가져옵니다.
+export async function getRepairReturns(repairId) {
+    const { data, error } = await supabase
+        .from("repair_returns")
+        .select("id, returned_qty, returned_on, outcome, note")
+        .eq("repair_id", repairId)
+        .order("id");
+    if (error) throw error;
+
+    return (data ?? []).map((r) => ({
+        id: r.id,
+        반납수량: r.returned_qty,
+        반납일: r.returned_on,
+        결과: r.outcome,
+        비고: r.note,
+    }));
+}
+
+
+// 수리 반납을 등록합니다. 한 수리 건에 여러 번 나눠서 걸릴 수 있어 회차별로 쌓입니다.
+// '정상복귀'인 만큼만 현재재고에 다시 더하고 '폐기'는 되돌리지 않는 규칙, 보낸 수량보다
+// 많이 반납되지 않는지 검증까지 전부 DB 함수가 합니다. 어느 자재의 재고를 되돌릴지도
+// DB가 수리 건에서 직접 찾으므로 자재 id를 넘기지 않습니다.
+export async function addRepairReturn(repairId, returnedQty, returnedOn, outcome, note) {
+    const { error } = await supabase.rpc("add_repair_return", {
+        p_repair_id: repairId,
+        p_returned_qty: returnedQty,
+        p_returned_on: returnedOn,
+        p_outcome: outcome,
+        p_note: note || null,
+    });
+    if (error) throw error;
+}
+
+
 // 컨베이어 ID로 BOQ(설비 설계 사양) 한 건을 찾습니다.
 // "LM101 BD001"처럼 PLC 그룹 없는 형태와 "CC101 LM101 BD001"처럼 포함된 형태 둘 다로
 // 검색할 수 있고, 띄어쓰기·대소문자도 무시됩니다. 실제 비교는 DB의 find_boq 함수가 합니다.

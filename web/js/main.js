@@ -6,6 +6,7 @@ import * as boqPage from "./pages/boq.js";
 import * as materialsPage from "./pages/materials.js";
 import * as usagePage from "./pages/usage.js";
 import * as purchasePage from "./pages/purchase.js";
+import * as repairsPage from "./pages/repairs.js";
 
 const loadingView = document.getElementById("loading-view");
 const loginView = document.getElementById("login-view");
@@ -22,6 +23,7 @@ const PAGES = {
     materials: { load: () => materialsPage.load(), tableId: "materials-table" },
     usage: { load: () => usagePage.load(), tableId: "usage-table" },
     purchase: { load: () => purchasePage.load(), tableId: "purchase-requests-table" },
+    repairs: { load: () => repairsPage.load(), tableId: "repairs-table" },
 };
 
 let currentPage = "boq";
@@ -135,6 +137,7 @@ for (const btn of document.querySelectorAll(".nav-btn")) {
 boqPage.init();
 materialsPage.init();
 purchasePage.init();
+repairsPage.init();
 // 사용이력 표에서 설비를 고르면 그 ID로 BOQ 검색 화면으로 넘어가게 연결합니다.
 usagePage.init((equipmentId) => {
     goToPage("boq");

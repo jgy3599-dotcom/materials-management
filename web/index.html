@@ -52,6 +52,7 @@
                 <button class="nav-btn" data-page="materials">📋 자재 목록</button>
                 <button class="nav-btn" data-page="usage">🔧 사용(출고) 이력</button>
                 <button class="nav-btn" data-page="purchase">🛒 구매 요청</button>
+                <button class="nav-btn" data-page="repairs">🧰 수리 관리</button>
             </nav>
 
             <main class="content">
@@ -251,6 +252,59 @@
                         위 목록에서 해당 요청을 나중에 삭제해도 여기 기록은 남습니다.
                     </p>
                     <div id="purchase-history-table"></div>
+                </section>
+
+                <!-- ========== 수리 관리 ========== -->
+                <section class="page hidden" id="page-repairs">
+                    <div class="card-head">
+                        <h1 class="page-title" style="margin:0">🧰 수리 현황 <span class="count" id="repairs-count"></span></h1>
+                        <div class="card-actions">
+                            <button class="secondary" id="repairs-reload-btn">새로고침</button>
+                            <button class="secondary" id="repairs-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption">
+                        자재출처를 '한진 SPARE'나 '한진 구매품'으로 사용(출고) 등록하면 자동으로 여기 등록됩니다.
+                        행을 클릭하면 아래에서 반납(복귀/폐기)을 등록할 수 있습니다.
+                    </p>
+                    <p class="caption hidden" id="repairs-status"></p>
+                    <div id="repairs-table"></div>
+
+                    <div id="repair-detail" class="hidden">
+                        <hr>
+                        <h2 id="repair-title"></h2>
+
+                        <p class="caption hidden" id="repair-done">이미 전량 반납 처리되었습니다.</p>
+
+                        <form id="repair-form" class="card">
+                            <div class="form-grid">
+                                <div>
+                                    <label for="repair-qty">이번 반납 수량 <span class="count" id="repair-outstanding"></span></label>
+                                    <input type="number" id="repair-qty" min="1" step="1" value="1" required>
+                                </div>
+                                <div>
+                                    <label for="repair-date">반납일</label>
+                                    <input type="date" id="repair-date" required>
+                                </div>
+                                <div>
+                                    <label for="repair-outcome">결과</label>
+                                    <select id="repair-outcome">
+                                        <option value="정상복귀">정상복귀</option>
+                                        <option value="폐기">폐기</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="repair-note">비고</label>
+                                    <input type="text" id="repair-note">
+                                </div>
+                            </div>
+                            <button type="submit" id="repair-submit-btn" style="margin-top:16px">반납 등록</button>
+                            <p class="caption hidden" id="repair-form-status"></p>
+                        </form>
+
+                        <h2>반납 이력</h2>
+                        <div id="repair-returns-table"></div>
+                    </div>
                 </section>
             </main>
         </div>
