@@ -456,13 +456,38 @@ input[type="date"] {
     border-color: var(--border);
 }
 
-.tabulator .tabulator-row {
-    background: var(--bg-2);
-    border-color: var(--border);
+/* 칸마다 세로선을 그으면 격자 우리처럼 보여서, 정작 읽어야 할 값보다 선이 먼저
+   눈에 들어옵니다. 가로줄만 남기고 세로선은 걷어냅니다. */
+.tabulator .tabulator-col,
+.tabulator .tabulator-cell {
+    border-right: none;
 }
 
+/* 글자가 선에 닿지 않게 숨 쉴 자리를 줍니다. */
+.tabulator .tabulator-cell {
+    padding: 8px 13px;
+}
+
+.tabulator .tabulator-col .tabulator-col-content {
+    padding: 8px 13px;
+}
+
+/* 줄마다 아주 옅은 가로줄을 둡니다. 세로선을 걷어내고 나니 가로로 눈이 따라갈
+   길잡이가 없어졌는데, 칸을 나누는 선이 아니라 줄을 잇는 선이라 훨씬 조용합니다. */
+.tabulator .tabulator-row {
+    background: var(--bg-2);
+    border-bottom: 1px solid #22262B;
+}
+
+/* 줄무늬도 함께 씁니다. 둘 다 아주 옅게 두면 서로 시끄러워지지 않으면서
+   넓은 표에서 한 줄을 끝까지 따라가기 쉬워집니다. */
 .tabulator .tabulator-row.tabulator-row-even {
-    background: var(--bg);
+    background: #191C21;
+}
+
+/* 가로로 넓은 표에서 한 줄을 끝까지 따라가려면 짚어주는 것이 있어야 합니다. */
+.tabulator .tabulator-row:hover {
+    background: #262B32;
 }
 
 .tabulator .tabulator-header-filter input {
