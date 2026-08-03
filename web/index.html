@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>자재관리 시스템</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/css/tabulator_midnight.min.css">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -44,39 +45,74 @@
             </div>
         </header>
 
-        <div class="container">
-            <h1 style="font-size:20px">🔎 BOQ 검색</h1>
-            <p class="caption">
-                PLC 그룹 없는 형태(예: LM101 BD001)와 포함된 형태(예: CC101 LM101 BD001)
-                둘 다 검색됩니다. 띄어쓰기와 대소문자는 무시합니다.
-            </p>
+        <div class="layout">
+            <!-- 왼쪽 메뉴 -->
+            <nav class="sidebar">
+                <button class="nav-btn" data-page="boq">🔎 BOQ 검색</button>
+                <button class="nav-btn" data-page="materials">📋 자재 목록</button>
+            </nav>
 
-            <div class="search-bar">
-                <input type="text" id="boq-input" placeholder="컨베이어 ID 입력 후 Enter" autocomplete="off">
-                <button id="boq-search-btn">조회</button>
-            </div>
+            <main class="content">
+                <!-- 요약 카드 -->
+                <div class="metrics">
+                    <div class="metric"><span class="metric-label">전체 자재</span><span class="metric-value" id="m-total">-</span></div>
+                    <div class="metric"><span class="metric-label">카테고리</span><span class="metric-value" id="m-categories">-</span></div>
+                    <div class="metric"><span class="metric-label">구매 필요</span><span class="metric-value" id="m-need">-</span></div>
+                </div>
+                <p class="warn-box hidden" id="need-warning"></p>
 
-            <p class="caption hidden" id="boq-status"></p>
+                <!-- ========== BOQ 검색 ========== -->
+                <section class="page" id="page-boq">
+                    <h1 class="page-title">🔎 BOQ 검색</h1>
+                    <p class="caption">
+                        PLC 그룹 없는 형태(예: LM101 BD001)와 포함된 형태(예: CC101 LM101 BD001)
+                        둘 다 검색됩니다. 띄어쓰기와 대소문자는 무시합니다.
+                    </p>
 
-            <div id="boq-result" class="two-col hidden">
-                <!-- 왼쪽: 설계 스펙 -->
-                <div class="card" id="boq-spec"></div>
+                    <div class="search-bar">
+                        <input type="text" id="boq-input" placeholder="컨베이어 ID 입력 후 Enter" autocomplete="off">
+                        <button id="boq-search-btn">조회</button>
+                    </div>
 
-                <!-- 오른쪽: 교체(사용) 이력 -->
-                <div class="card">
-                    <div class="card-head">
-                        <h2 style="margin:0">교체(사용) 이력 <span class="count" id="boq-history-count"></span></h2>
-                        <div class="card-actions">
-                            <select id="boq-sort">
-                                <option value="desc">최신순</option>
-                                <option value="asc">과거순</option>
-                            </select>
-                            <button class="secondary" id="boq-excel-btn">엑셀</button>
+                    <p class="caption hidden" id="boq-status"></p>
+
+                    <div id="boq-result" class="two-col hidden">
+                        <div class="card" id="boq-spec"></div>
+
+                        <div class="card">
+                            <div class="card-head">
+                                <h2 style="margin:0">교체(사용) 이력 <span class="count" id="boq-history-count"></span></h2>
+                                <div class="card-actions">
+                                    <select id="boq-sort">
+                                        <option value="desc">최신순</option>
+                                        <option value="asc">과거순</option>
+                                    </select>
+                                    <button class="secondary" id="boq-excel-btn">엑셀</button>
+                                </div>
+                            </div>
+                            <div id="boq-history-list"></div>
                         </div>
                     </div>
-                    <div id="boq-history-list"></div>
-                </div>
-            </div>
+                </section>
+
+                <!-- ========== 자재 목록 ========== -->
+                <section class="page hidden" id="page-materials">
+                    <div class="card-head">
+                        <h1 class="page-title" style="margin:0">📋 자재 목록</h1>
+                        <div class="card-actions">
+                            <button class="secondary" id="materials-reload-btn">새로고침</button>
+                            <button class="secondary" id="materials-excel-btn">엑셀</button>
+                        </div>
+                    </div>
+                    <p class="caption" id="materials-count"></p>
+                    <p class="caption hidden" id="materials-status"></p>
+                    <div id="materials-table"></div>
+                    <p class="caption">
+                        컬럼 제목 아래 칸에 입력하면 걸러집니다. 엑셀은 화면에 보이는 결과 그대로 받습니다.
+                        자재 수정/삭제는 아직 Streamlit 앱에서 하셔야 합니다.
+                    </p>
+                </section>
+            </main>
         </div>
     </div>
 

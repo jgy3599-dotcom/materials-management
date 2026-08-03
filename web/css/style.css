@@ -225,6 +225,132 @@ label {
     font-size: 12px;
 }
 
+/* 왼쪽 메뉴 + 본문 배치 */
+.layout {
+    display: grid;
+    grid-template-columns: 180px 1fr;
+    align-items: start;
+}
+
+@media (max-width: 820px) {
+    .layout {
+        grid-template-columns: 1fr;
+    }
+    .sidebar {
+        flex-direction: row !important;
+        overflow-x: auto;
+        border-right: none !important;
+        border-bottom: 1px solid var(--border);
+    }
+}
+
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px 12px;
+    background: var(--bg-side);
+    border-right: 1px solid var(--border);
+    min-height: calc(100vh - 53px);
+}
+
+.nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text);
+    text-align: left;
+    white-space: nowrap;
+    padding: 9px 12px;
+}
+
+.nav-btn:hover {
+    background: var(--bg-2);
+    filter: none;
+}
+
+.nav-btn.active {
+    background: var(--primary);
+    color: #fff;
+}
+
+.content {
+    padding: 20px 22px 60px;
+    min-width: 0;   /* 표가 넓어도 화면을 밀어내지 않게 */
+}
+
+.page-title {
+    font-size: 20px;
+    margin: 0 0 4px;
+}
+
+/* 요약 카드 */
+.metrics {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.metric {
+    flex: 1;
+    min-width: 130px;
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.metric-label {
+    color: var(--text-dim);
+    font-size: 12px;
+}
+
+.metric-value {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+.warn-box {
+    margin: 0 0 14px;
+    padding: 10px 12px;
+    background: rgba(251, 191, 36, 0.12);
+    border: 1px solid var(--warn);
+    border-radius: 6px;
+    color: var(--warn);
+    font-size: 13px;
+}
+
+/* 표 색상을 우리 테마에 맞춥니다 (Tabulator 기본 어두운 테마 위에 덧칠) */
+.tabulator {
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 13px;
+}
+
+.tabulator .tabulator-header,
+.tabulator .tabulator-col {
+    background: var(--bg-side);
+    border-color: var(--border);
+}
+
+.tabulator .tabulator-row {
+    background: var(--bg-2);
+    border-color: var(--border);
+}
+
+.tabulator .tabulator-row.tabulator-row-even {
+    background: var(--bg);
+}
+
+.tabulator .tabulator-header-filter input {
+    padding: 4px 6px;
+    font-size: 12px;
+}
+
 /* 검색줄 */
 .search-bar {
     display: flex;
