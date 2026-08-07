@@ -104,6 +104,10 @@ function render(session) {
         loadSummary();
         goToPage(currentPage);
     } else {
+        // 팝업은 화면 맨 위층에 뜨기 때문에 로그인 화면으로 돌아가도 그대로 남습니다.
+        // 다른 탭에서 로그아웃했거나 로그인이 만료됐을 때, 로그인 화면 위에 자재 내용이
+        // 보이고 삭제 버튼까지 눌리는 상태가 됩니다. 그래서 열린 팝업을 모두 닫습니다.
+        for (const dlg of document.querySelectorAll("dialog[open]")) dlg.close();
         show(loginView);
     }
 }

@@ -52,8 +52,10 @@ const el = (id) => document.getElementById(id);
 
 
 // 화면에 처음 들어올 때 한 번만 불러옵니다. 메뉴를 오갈 때마다 다시 받지 않습니다.
+// 성공하면 true를 돌려줍니다. 저장·삭제 뒤에 목록을 다시 읽을 때, 그 읽기가 실패했는지
+// 알아야 "됐습니다"라고만 말하고 옛 목록을 그대로 두는 일이 없습니다.
 export async function load(force = false) {
-    if (loaded && !force) return;
+    if (loaded && !force) return true;
 
     setStatus("materials-status", "불러오는 중...");
     try {
@@ -71,9 +73,11 @@ export async function load(force = false) {
     } catch (err) {
         setStatus("materials-status",
             describeError(err, "자재 목록을 불러오지 못했습니다."), "error");
+        return false;
+    } finally {
+        if (isSuperAdmin) loadAuditLog();
     }
-
-    if (isSuperAdmin) loadAuditLog();
+    return true;
 }
 
 
@@ -104,8 +108,25 @@ function resetDialog() {
 
     el("mat-delete-details").open = false;
     el("mat-delete-confirm").checked = false;
+    el("mat-delete-confirm").disabled = true;
     el("mat-delete-btn").disabled = true;
     el("mat-save-btn").disabled = true;
+}
+
+
+// 저장·삭제가 끝난 뒤 창을 닫고 목록을 새로 읽습니다.
+// 목록 읽기가 실패했으면 "됐습니다"라고만 말하지 않습니다. 화면에 옛 목록이 그대로
+// 남아 있어서, 방금 지운 자재가 아직 보이는 것을 사람이 오해하게 됩니다.
+async function finish(okMessage, warnings) {
+    el("mat-dialog").close();
+    const reloaded = await load(true);
+
+    const notes = [...warnings];
+    if (!reloaded) notes.push("목록을 새로 읽지 못했습니다. 새로고침을 눌러주세요.");
+
+    setStatus("materials-status",
+        notes.length ? `${okMessage}\n\n다만: ${notes.join("\n다만: ")}` : okMessage,
+        notes.length ? "error" : "ok");
 }
 
 
@@ -117,32 +138,35 @@ async function openDialog(row) {
     setStatus("mat-dialog-status", "불러오는 중...");
     el("mat-dialog").showModal();
 
-    let loaded;
+    // 이름을 fresh로 둡니다. loaded는 이 파일 위쪽에서 "목록을 한 번 읽었는가"를
+    // 뜻하는 다른 변수라, 같은 이름을 쓰면 나중에 헷갈립니다.
+    let fresh;
     try {
-        loaded = await getMaterial(row.id);
+        fresh = await getMaterial(row.id);
     } catch (err) {
         setStatus("mat-dialog-status",
             describeError(err, "자재 정보를 불러오지 못했습니다."), "error");
         return;
     }
 
-    if (!loaded) {
+    if (!fresh) {
         setStatus("mat-dialog-status",
             "이 자재를 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.", "error");
         return;
     }
 
     for (const [col, inputId] of Object.entries(FIELDS)) {
-        el(inputId).value = loaded[col] ?? "";
+        el(inputId).value = fresh[col] ?? "";
     }
-    el("mat-current").value = loaded.current_qty ?? 0;
+    el("mat-current").value = fresh.current_qty ?? 0;
     el("mat-qty-hint").textContent =
-        `현재재고는 지금 값(${loaded.current_qty ?? 0}) 대비 바뀐 만큼만 반영됩니다.`;
+        `현재재고는 지금 값(${fresh.current_qty ?? 0}) 대비 바뀐 만큼만 반영됩니다.`;
 
-    // 다 채운 뒤에야 버튼을 풀고 대상을 정합니다. 이 두 줄이 끝나기 전에는
-    // 저장·삭제가 눌려도 아무 일도 일어나지 않습니다.
+    // 다 채운 뒤에야 버튼을 풀고 대상을 정합니다. 여기까지 오지 못하면 저장·삭제는
+    // 잠긴 채로 남습니다(불러오기가 실패한 창에서 삭제가 눌리지 않게).
     el("mat-save-btn").disabled = false;
-    openMaterial = loaded;
+    el("mat-delete-confirm").disabled = false;
+    openMaterial = fresh;
     setStatus("mat-dialog-status", "");
 }
 
@@ -162,6 +186,11 @@ async function saveMaterial(e) {
     e.preventDefault();
     if (!openMaterial) return;
 
+    // ⚠️ 지금 고치는 자재를 여기서 붙잡아 둡니다. 아래에서 DB를 기다리는 동안 사람이
+    // 창을 닫고 다른 자재를 열면 openMaterial이 그 자재로 바뀌는데, 그대로 두면
+    // A의 재고 변화가 B에 적용됩니다. 삭제 쪽은 이미 이렇게 하고 있었습니다.
+    const target = openMaterial;
+
     const data = readForm();
     if (!data.part_name) {
         setStatus("mat-dialog-status", "부품명(규격)은 반드시 입력해야 합니다.", "error");
@@ -173,7 +202,7 @@ async function saveMaterial(e) {
     // 그 변화를 지우지 않고, 사람이 의도한 증감만 반영됩니다.
     //
     // 칸을 비워두면 0으로 읽어서 재고를 통째로 날려버리므로, 비었으면 "안 바꿈"으로 봅니다.
-    const before = Number(openMaterial.current_qty ?? 0);
+    const before = Number(target.current_qty ?? 0);
     const typed = el("mat-current").value.trim();
     const after = typed === "" ? before : Number(typed);
     if (!Number.isFinite(after)) {
@@ -184,39 +213,44 @@ async function saveMaterial(e) {
     const btn = el("mat-save-btn");
     btn.disabled = true;
     setStatus("mat-dialog-status", "");
-    const beforeData = { ...openMaterial };
+    const beforeData = { ...target };
+
+    // 항목 저장과 재고 반영은 DB에 따로 나가므로, 앞은 됐는데 뒤가 실패할 수 있습니다.
+    // 그때 "전부 실패했다"고 하면 이미 저장된 항목까지 안 된 줄 알게 됩니다.
     try {
-        await updateMaterial(openMaterial.id, data);
-        if (after !== before) {
-            await adjustMaterialQty(openMaterial.id, after - before);
-            // 여기서 기준값을 옮겨둡니다. 뒤에서 실패해 다시 저장하더라도 같은 차이가
-            // 두 번 더해지지 않습니다(10 → 15 → 20 이 되는 것을 막습니다).
-            openMaterial.current_qty = after;
-        }
+        await updateMaterial(target.id, data);
     } catch (err) {
         setStatus("mat-dialog-status", describeError(err, "자재 수정에 실패했습니다."), "error");
         btn.disabled = false;
         return;
     }
 
-    // 여기부터는 저장이 이미 끝났습니다. 감사 로그가 실패해도 저장을 되돌리지 않고,
-    // "저장은 됐지만 기록은 못 남겼다"고 사실대로 알립니다.
-    let auditFailed = null;
-    try {
-        await insertAuditLog(currentEmail, "update", openMaterial.id, data.part_name,
-            beforeData, { ...data, current_qty: after });
-    } catch (err) {
-        auditFailed = err;
+    if (after !== before) {
+        try {
+            await adjustMaterialQty(target.id, after - before);
+            // 기준값을 옮겨둡니다. 뒤에서 실패해 다시 저장하더라도 같은 차이가
+            // 두 번 더해지지 않습니다(10 → 15 → 20 이 되는 것을 막습니다).
+            target.current_qty = after;
+        } catch (err) {
+            setStatus("mat-dialog-status",
+                describeError(err, "항목은 저장했지만 현재재고 반영에 실패했습니다. 재고 값을 다시 확인해주세요."),
+                "error");
+            btn.disabled = false;
+            return;
+        }
     }
 
-    el("mat-dialog").close();
-    await load(true);
-    setStatus("materials-status",
-        auditFailed
-            ? describeError(auditFailed,
-                `'${data.part_name}' 자재는 수정되었지만, 감사 로그를 남기지 못했습니다.`)
-            : `'${data.part_name}' 자재가 수정되었습니다.`,
-        auditFailed ? "error" : "ok");
+    // 여기부터는 저장이 끝났습니다. 감사 로그가 실패해도 저장을 되돌리지 않고,
+    // "저장은 됐지만 기록은 못 남겼다"고 사실대로 알립니다.
+    const warnings = [];
+    try {
+        await insertAuditLog(currentEmail, "update", target.id, data.part_name,
+            beforeData, { ...data, current_qty: after });
+    } catch (err) {
+        warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
+    }
+
+    await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings);
 }
 
 
@@ -230,11 +264,14 @@ async function removeMaterial() {
     try {
         await deleteMaterial(removed.id);
     } catch (err) {
-        // 23503은 이 자재를 가리키는 이력이 남아 있어서 DB가 거부한 경우입니다.
-        // 그때만 이유를 짚어주고, 권한 문제 같은 다른 오류까지 같은 문구로 뭉뚱그리지 않습니다.
+        // 23503은 이 자재를 가리키는 기록이 어딘가에 남아 있어서 DB가 거부한 경우입니다.
+        // materials를 가리키는 표가 넷(history·purchase_requests·purchase_history·repairs)이라
+        // 어느 쪽인지는 알 수 없으므로 전부 짚어줍니다. 이력만 지우고 다시 눌렀다가
+        // 같은 문구를 또 보면 어디를 봐야 할지 알 수 없습니다.
+        // 권한 문제 같은 다른 오류까지 같은 문구로 뭉뚱그리지는 않습니다.
         setStatus("mat-dialog-status",
             err?.code === "23503"
-                ? "이 자재는 입출고 이력이 남아있어 삭제할 수 없습니다. 이력을 먼저 정리해주세요."
+                ? "이 자재를 쓴 기록이 남아있어 삭제할 수 없습니다. 입출고 이력 · 구매요청 · 구매이력 · 수리 기록을 확인해주세요."
                 : describeError(err, "자재 삭제에 실패했습니다."),
             "error");
         btn.disabled = false;
@@ -243,21 +280,14 @@ async function removeMaterial() {
 
     // 자재는 이미 지워졌습니다. 감사 로그가 실패해도 목록은 새로 읽어야 합니다.
     // 안 그러면 지워진 자재가 화면에 남은 채 "삭제 실패"라고 나옵니다.
-    let auditFailed = null;
+    const warnings = [];
     try {
         await insertAuditLog(currentEmail, "delete", removed.id, removed.part_name, removed);
     } catch (err) {
-        auditFailed = err;
+        warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
 
-    el("mat-dialog").close();
-    await load(true);
-    setStatus("materials-status",
-        auditFailed
-            ? describeError(auditFailed,
-                `'${removed.part_name}' 자재는 삭제되었지만, 감사 로그를 남기지 못했습니다.`)
-            : `'${removed.part_name}' 자재가 삭제되었습니다.`,
-        auditFailed ? "error" : "ok");
+    await finish(`'${removed.part_name}' 자재가 삭제되었습니다.`, warnings);
 }
 
 
