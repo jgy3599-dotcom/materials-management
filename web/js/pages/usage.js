@@ -145,12 +145,21 @@ async function submit(e) {
         });
 
         const partName = document.getElementById("usage-part").selectedOptions[0]?.textContent ?? "";
-        setStatus("usage-form-status", `'${partName}' 출고가 등록되었습니다.`, "ok");
         document.getElementById("usage-form").reset();
         document.getElementById("usage-date").value = today();
         fillSourceOptions();
 
         await load(true);   // 표와 재고를 새로 읽어옵니다
+
+        // 차감한 뒤 재고가 음수면, 있는 것보다 많이 나갔다는 뜻이라 기록 어딘가가
+        // 어긋난 것입니다. 막지는 않지만(실제로 음수인 자재가 있습니다) 그냥 넘어가면
+        // 아무도 모르므로 등록 직후에 짚어줍니다.
+        const left = materials.find((m) => m.id === Number(materialId))?.["현재재고"];
+        setStatus("usage-form-status",
+            Number(left) < 0
+                ? `'${partName}' 출고가 등록되었습니다.\n\n⚠️ 이 자재의 현재재고가 ${left}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`
+                : `'${partName}' 출고가 등록되었습니다.`,
+            Number(left) < 0 ? "error" : "ok");
     } catch (err) {
         setStatus("usage-form-status", describeError(err, "출고 등록에 실패했습니다."), "error");
     } finally {

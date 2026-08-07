@@ -101,11 +101,23 @@ function statusFormatter(cell) {
 }
 
 
+// 현재재고가 음수면 실제로 있는 것보다 더 많이 나간 것이라, 기록 어딘가가 어긋났다는
+// 신호입니다. 지금도 음수인 자재가 있어서 막지는 않지만, 눈에는 띄어야 합니다.
+function stockFormatter(cell) {
+    const value = cell.getValue();
+    if (value === null || value === undefined || value === "") return "";
+    const n = Number(value);
+    const text = esc(value);
+    return Number.isFinite(n) && n < 0 ? `<span class="negative">${text}</span>` : text;
+}
+
+
 // 값을 그대로 두지 않고 따로 그리는 칸들입니다. 컬럼 이름은 화면이 달라도 같아서
 // 여기 한 곳에 모아둡니다. 여기 없는 칸은 손대지 않습니다.
 const FORMATTERS = {
     "상태": statusFormatter,
     "구매필요": shortageFormatter,
+    "현재재고": stockFormatter,
 };
 
 // 이 표에서 실제로 찾는 대상입니다. 다른 칸을 흐리게 하는 것만으로는 부족해서

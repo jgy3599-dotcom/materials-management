@@ -540,6 +540,13 @@ input[type="date"] {
     color: var(--text-dim);
 }
 
+/* 재고가 음수 = 있는 것보다 많이 나갔다는 뜻이라 기록이 어긋난 상태입니다.
+   부족(--mark)과는 성격이 달라서, 잘못됐다는 쪽 색(--error)으로 구분합니다. */
+.negative {
+    color: var(--error);
+    font-weight: 600;
+}
+
 /* 페이지 넘김 줄 */
 .tabulator .tabulator-footer {
     background: var(--bg-side);

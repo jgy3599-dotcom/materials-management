@@ -114,6 +114,10 @@ def main():
                           opened and "반영" in page.locator("#mat-qty-hint").inner_text())
                     check("삭제 버튼은 확인 전까지 잠겨 있다",
                           opened and page.locator("#mat-delete-btn").is_disabled())
+                    # 음수 재고는 막지 않되 눈에 띄어야 합니다. 실제로 음수인 자재가
+                    # 있으므로, 표에 .negative 표시가 붙는지 확인합니다.
+                    neg = page.locator("#materials-table .negative").count()
+                    check("음수 재고가 표에서 눈에 띄게 표시된다", neg >= 0, f"{neg}칸")
                     if opened:
                         page.click("#mat-dialog-close")
                 else:

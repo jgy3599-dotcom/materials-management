@@ -268,6 +268,12 @@ async function saveMaterial(e) {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
 
+    // 음수 재고는 막지 않습니다(실제로 음수인 자재가 있습니다). 다만 있는 것보다 많이
+    // 나간 상태라는 뜻이므로 그냥 넘어가지 않고 짚어줍니다.
+    if (finalQty < 0) {
+        warnings.push(`현재재고가 ${finalQty}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`);
+    }
+
     setBusy(false);
     await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings);
 }
