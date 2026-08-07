@@ -10,11 +10,14 @@ export function describeError(err, whatFailed) {
 
 
 // 화면 위쪽 안내줄에 메시지를 띄웁니다. 빈 문자열을 주면 감춥니다.
+//
+// warn은 "일은 됐지만 봐둘 것이 있다"는 뜻입니다. 실패(error)와 같은 빨간 상자를 쓰면
+// 성공한 등록을 실패로 오해해서 한 번 더 누르게 되므로 따로 둡니다.
 export function setStatus(elementId, message, kind = "info") {
     const box = document.getElementById(elementId);
     if (!box) return;
     box.textContent = message;
-    box.className = { info: "caption", error: "error-msg", ok: "ok-msg" }[kind];
+    box.className = { info: "caption", error: "error-msg", ok: "ok-msg", warn: "warn-msg" }[kind];
     box.classList.toggle("hidden", !message);
 }
 

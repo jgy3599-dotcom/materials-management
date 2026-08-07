@@ -121,16 +121,19 @@ function resetDialog() {
 // 저장·삭제가 끝난 뒤 창을 닫고 목록을 새로 읽습니다.
 // 목록 읽기가 실패했으면 "됐습니다"라고만 말하지 않습니다. 화면에 옛 목록이 그대로
 // 남아 있어서, 방금 지운 자재가 아직 보이는 것을 사람이 오해하게 됩니다.
-async function finish(okMessage, warnings) {
+// failures : 하려던 일 중 실패한 것 (감사 로그 못 남김 등)  → 빨간 상자
+// notices  : 일은 다 됐지만 봐둘 것 (재고가 음수 등)        → 노란 상자
+async function finish(okMessage, failures, notices = []) {
     el("mat-dialog").close();
     const reloadError = await load(true);
 
-    const notes = [...warnings];
-    if (reloadError) notes.push(reloadError);
+    const failed = [...failures];
+    if (reloadError) failed.push(reloadError);
 
+    const all = [...failed, ...notices];
     setStatus("materials-status",
-        notes.length ? `${okMessage}\n\n다만: ${notes.join("\n다만: ")}` : okMessage,
-        notes.length ? "error" : "ok");
+        all.length ? `${okMessage}\n\n다만: ${all.join("\n다만: ")}` : okMessage,
+        failed.length ? "error" : notices.length ? "warn" : "ok");
 }
 
 
@@ -270,12 +273,17 @@ async function saveMaterial(e) {
 
     // 음수 재고는 막지 않습니다(실제로 음수인 자재가 있습니다). 다만 있는 것보다 많이
     // 나간 상태라는 뜻이므로 그냥 넘어가지 않고 짚어줍니다.
-    if (finalQty < 0) {
-        warnings.push(`현재재고가 ${finalQty}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`);
+    //
+    // 재고를 실제로 건드린 경우에만 말합니다. 손대지 않았다면 지금 DB 값이 얼마인지
+    // 알 수 없고(창을 열어둔 사이에 출고가 있었을 수 있음), 원래 음수이던 자재의
+    // 비고만 고쳐도 매번 경고가 뜨게 됩니다. 그건 표에 빨갛게 보이는 것으로 충분합니다.
+    const notices = [];
+    if (after !== before && finalQty < 0) {
+        notices.push(`현재재고가 ${finalQty}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`);
     }
 
     setBusy(false);
-    await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings);
+    await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings, notices);
 }
 
 

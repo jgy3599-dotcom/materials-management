@@ -114,14 +114,33 @@ def main():
                           opened and "반영" in page.locator("#mat-qty-hint").inner_text())
                     check("삭제 버튼은 확인 전까지 잠겨 있다",
                           opened and page.locator("#mat-delete-btn").is_disabled())
-                    # 음수 재고는 막지 않되 눈에 띄어야 합니다. 실제로 음수인 자재가
-                    # 있으므로, 표에 .negative 표시가 붙는지 확인합니다.
-                    neg = page.locator("#materials-table .negative").count()
-                    check("음수 재고가 표에서 눈에 띄게 표시된다", neg >= 0, f"{neg}칸")
                     if opened:
                         page.click("#mat-dialog-close")
                 else:
                     check("관리자가 아니면 두 번 눌러도 수정 팝업이 열리지 않는다", not opened)
+
+            # 음수 재고 표시. 현재재고로 오름차순 정렬하면 음수가 첫 쪽으로 올라옵니다.
+            # "음수인 칸에 표시가 빠진 게 없는가"를 보므로, 표시가 사라지면 실패합니다.
+            # (그냥 개수만 세면 0 이상이라 늘 통과하는 무의미한 검사가 됩니다.)
+            page.click('#materials-table .tabulator-col[tabulator-field="현재재고"]')
+            page.wait_for_timeout(1000)
+            stock = page.evaluate("""() => {
+                const cells = document.querySelectorAll(
+                    '#materials-table .tabulator-cell[tabulator-field="현재재고"]');
+                let neg = 0, missing = 0;
+                for (const c of cells) {
+                    if (!c.textContent.trim().startsWith('-')) continue;
+                    neg++;
+                    if (!c.querySelector('.negative')) missing++;
+                }
+                return { neg, missing };
+            }""")
+            if stock["neg"] == 0:
+                check("음수 재고 표시 확인", False,
+                      "첫 쪽에 음수 자재가 없어 확인하지 못했습니다 (정렬을 확인해주세요)")
+            else:
+                check("음수 재고에 빨간 표시가 빠진 칸이 없다", stock["missing"] == 0,
+                      f"음수 {stock['neg']}칸 / 표시 누락 {stock['missing']}칸")
 
             print("\n[5] 사용(출고) 이력 - 표에 행이 그려지는지")
             page.click('.nav-btn[data-page="usage"]')

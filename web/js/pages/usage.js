@@ -1,6 +1,6 @@
 // 사용(출고) 이력 화면입니다. 이력을 표로 보여주고, 아래에서 새 출고를 등록합니다.
 // 입고(구매) 이력은 '구매 요청' 쪽에서 따로 관리합니다.
-import { getUsageHistory, getMaterials, registerUsage } from "../db.js";
+import { getUsageHistory, getMaterials, getMaterial, registerUsage } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, today, esc } from "../ui.js";
 
@@ -154,12 +154,23 @@ async function submit(e) {
         // 차감한 뒤 재고가 음수면, 있는 것보다 많이 나갔다는 뜻이라 기록 어딘가가
         // 어긋난 것입니다. 막지는 않지만(실제로 음수인 자재가 있습니다) 그냥 넘어가면
         // 아무도 모르므로 등록 직후에 짚어줍니다.
-        const left = materials.find((m) => m.id === Number(materialId))?.["현재재고"];
+        //
+        // 목록이 아니라 그 자재만 DB에서 새로 읽습니다. 위의 load()는 실패해도 조용히
+        // 넘어가서, 목록에는 차감 전 값이 남아 있을 수 있기 때문입니다.
+        let left = null;
+        try {
+            left = (await getMaterial(Number(materialId)))?.current_qty ?? null;
+        } catch {
+            // 못 읽으면 경고 없이 성공 안내만 합니다. 표에는 음수가 빨갛게 보입니다.
+        }
+
+        // ⚠️ 성공한 등록을 빨간 실패 상자로 보여주면 안 됩니다. 실패한 줄 알고 한 번 더
+        // 누르면 이력이 두 번 쌓이고 재고도 두 번 깎입니다.
         setStatus("usage-form-status",
-            Number(left) < 0
+            left !== null && left < 0
                 ? `'${partName}' 출고가 등록되었습니다.\n\n⚠️ 이 자재의 현재재고가 ${left}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`
                 : `'${partName}' 출고가 등록되었습니다.`,
-            Number(left) < 0 ? "error" : "ok");
+            left !== null && left < 0 ? "warn" : "ok");
     } catch (err) {
         setStatus("usage-form-status", describeError(err, "출고 등록에 실패했습니다."), "error");
     } finally {

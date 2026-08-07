@@ -432,6 +432,19 @@ input[type="date"] {
     white-space: pre-line;
 }
 
+/* "일은 됐지만 봐둘 것이 있다". 실패와 같은 빨간 상자를 쓰면 성공한 등록을 실패로
+   오해해서 한 번 더 누르게 되므로, 색을 나눕니다. */
+.warn-msg {
+    margin: 14px 0 0;
+    padding: 10px 12px;
+    background: rgba(255, 196, 0, 0.10);
+    border: 1px solid var(--warn);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    white-space: pre-line;
+}
+
 /* 경고는 배경을 채우지 않고 왼쪽 선으로만 표시합니다.
    화면에서 노랑이 여러 군데서 소리치면 "지금 여기"라는 신호가 묻힙니다. */
 .warn-box {
