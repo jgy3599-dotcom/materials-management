@@ -120,6 +120,64 @@ export async function insertMaterial(data) {
 }
 
 
+// 자재 한 건을 DB에서 새로 읽어옵니다.
+// 표에 그려둔 값은 화면을 열어둔 사이에 낡을 수 있어서, 수정 팝업을 열 때는
+// 표의 값을 쓰지 않고 반드시 여기서 최신 값을 받아옵니다.
+export async function getMaterial(id) {
+    const { data, error } = await supabase.from("materials").select("*").eq("id", id);
+    if (error) throw error;
+    return data && data.length ? data[0] : null;
+}
+
+
+export async function updateMaterial(id, data) {
+    const { error } = await supabase.from("materials").update(data).eq("id", id);
+    if (error) throw error;
+}
+
+
+export async function deleteMaterial(id) {
+    const { error } = await supabase.from("materials").delete().eq("id", id);
+    if (error) throw error;
+}
+
+
+// 현재재고를 delta만큼 더합니다(음수면 뺍니다).
+// DB에 저장된 값을 직접 기준으로 더하므로, 읽어와서 계산한 뒤 덮어쓰는 방식과 달리
+// 그 사이에 일어난 출고·입고를 지워버리지 않습니다.
+export async function adjustMaterialQty(id, delta) {
+    const { error } = await supabase.rpc("adjust_material_qty", {
+        p_material_id: id,
+        p_delta: delta,
+    });
+    if (error) throw error;
+}
+
+
+// 감사 로그(최근 200건)입니다. 최상위권한자만 읽을 수 있게 RLS가 막고 있습니다.
+// before_data/after_data는 자재 한 행 전체가 담긴 중첩 JSON이라 표에 그대로 넣기 어려워
+// 글자로 바꿔서 내보냅니다.
+export async function getAuditLog() {
+    const { data, error } = await supabase
+        .from("audit_log")
+        .select("*")
+        .order("id", { ascending: false })
+        .limit(200);
+    if (error) throw error;
+
+    return (data ?? []).map((row) => ({
+        id: row.id,
+        일시: row.occurred_at,
+        작업: row.action,
+        자재id: row.material_id,
+        "부품명(규격)": row.part_name,
+        사용자: row.actor_email,
+        이전값: row.before_data ? JSON.stringify(row.before_data) : null,
+        이후값: row.after_data ? JSON.stringify(row.after_data) : null,
+    }));
+}
+
+
 // 자재를 등록/수정/삭제할 때마다 남기는 감사 로그입니다.
 // actor_email은 앱이 보내는 값을 DB가 그대로 믿지 않고 실제 로그인한 사람과 같은지
 // 검증하므로(RLS), 반드시 지금 로그인한 이메일을 넣어야 합니다.

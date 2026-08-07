@@ -128,8 +128,15 @@
                     <div id="materials-table"></div>
                     <p class="caption">
                         컬럼 제목 아래 칸에 입력하면 걸러집니다. 엑셀은 화면에 보이는 결과 그대로 받습니다.
-                        자재 수정/삭제는 아직 Streamlit 앱에서 하셔야 합니다.
                     </p>
+                    <p class="caption" id="materials-edit-hint"></p>
+
+                    <!-- 감사 로그: 최상위권한자에게만 보입니다 -->
+                    <details id="materials-audit" class="hidden" style="margin-top:18px">
+                        <summary>감사 로그 (최근 수정/삭제 200건)</summary>
+                        <p class="caption hidden" id="materials-audit-status"></p>
+                        <div id="materials-audit-table"></div>
+                    </details>
                 </section>
 
                 <!-- ========== 사용(출고) 이력 ========== -->
@@ -466,6 +473,64 @@
         </details>
 
         <p class="caption hidden" id="pr-dialog-status"></p>
+    </dialog>
+
+    <!-- 자재 수정/삭제 팝업. 자재 목록에서 행을 클릭하면 열립니다(관리자만). -->
+    <dialog id="mat-dialog" class="dialog-wide">
+        <div class="dialog-head">
+            <h2 style="margin:0">자재 수정 / 삭제</h2>
+            <button class="secondary" id="mat-dialog-close">✕</button>
+        </div>
+
+        <form id="mat-form">
+            <div class="form-grid">
+                <div>
+                    <label for="mat-category">카테고리</label>
+                    <input type="text" id="mat-category">
+                    <label for="mat-sub-type">구분</label>
+                    <input type="text" id="mat-sub-type">
+                    <label for="mat-part">부품명(규격)</label>
+                    <input type="text" id="mat-part" required>
+                    <label for="mat-order-code">발주코드</label>
+                    <input type="text" id="mat-order-code">
+                    <label for="mat-location">설치위치</label>
+                    <input type="text" id="mat-location">
+                    <label for="mat-manufacturer">제조사</label>
+                    <input type="text" id="mat-manufacturer">
+                </div>
+                <div>
+                    <label for="mat-vendor">거래처</label>
+                    <input type="text" id="mat-vendor">
+                    <label for="mat-in-use">적용수량</label>
+                    <input type="number" id="mat-in-use" min="0" step="1">
+                    <label for="mat-standard">표준재고</label>
+                    <input type="number" id="mat-standard" min="0" step="1">
+                    <label for="mat-current">현재재고</label>
+                    <input type="number" id="mat-current" min="0" step="1">
+                    <label for="mat-warehouse">창고번호</label>
+                    <input type="text" id="mat-warehouse">
+                </div>
+            </div>
+            <label for="mat-note">비고</label>
+            <input type="text" id="mat-note">
+
+            <p class="caption" id="mat-qty-hint"></p>
+            <button type="submit" id="mat-save-btn" style="width:100%; margin-top:12px">수정 저장</button>
+        </form>
+
+        <hr>
+        <details>
+            <summary>이 자재 삭제</summary>
+            <p class="caption">
+                입출고 이력이 남아 있는 자재는 삭제할 수 없습니다. 이력을 먼저 정리해주세요.
+            </p>
+            <label class="checkbox-line">
+                <input type="checkbox" id="mat-delete-confirm"> 삭제하겠습니다
+            </label>
+            <button id="mat-delete-btn" style="width:100%; margin-top:8px" disabled>삭제</button>
+        </details>
+
+        <p class="caption hidden" id="mat-dialog-status"></p>
     </dialog>
 
     <script type="module" src="js/main.js"></script>

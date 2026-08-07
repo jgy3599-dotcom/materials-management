@@ -86,6 +86,32 @@ def main():
             check("자재 목록 표에 행이 그려진다", n > 0, f"{n}행")
             check("페이지 넘김 줄이 있다", page.locator("#materials-table .tabulator-footer").count() > 0)
 
+            # 수정 팝업: 행을 눌러서 열고, 값이 채워지는지 본 다음 저장하지 않고 닫습니다.
+            # 관리자가 아니면 행을 눌러도 안 열리는 게 정상이라 그것도 확인합니다.
+            #
+            # 화면에 그 자리가 아예 없으면(= 아직 배포 안 된 옛 화면) 여기서 멈추지 않고
+            # 실패로 적어두고 넘어갑니다. 없는 것을 기다리다 30초 뒤 죽으면 뒤쪽 검사를
+            # 아예 못 하게 됩니다.
+            if page.locator("#materials-edit-hint").count() == 0:
+                check("수정 팝업 화면이 배포되어 있다", False, "아직 배포 전입니다")
+            else:
+                admin = "관리자만" not in page.locator("#materials-edit-hint").inner_text()
+                page.locator("#materials-table .tabulator-row").first.click()
+                page.wait_for_timeout(1500)
+                opened = page.locator("#mat-dialog[open]").count() > 0
+                if admin:
+                    check("행을 누르면 수정 팝업이 열린다", opened)
+                    check("팝업에 부품명이 채워져 있다",
+                          opened and page.input_value("#mat-part").strip() != "")
+                    check("현재재고 안내 문구가 있다",
+                          opened and "반영" in page.locator("#mat-qty-hint").inner_text())
+                    check("삭제 버튼은 확인 전까지 잠겨 있다",
+                          opened and page.locator("#mat-delete-btn").is_disabled())
+                    if opened:
+                        page.click("#mat-dialog-close")
+                else:
+                    check("관리자가 아니면 수정 팝업이 열리지 않는다", not opened)
+
             print("\n[5] 사용(출고) 이력 - 표에 행이 그려지는지")
             page.click('.nav-btn[data-page="usage"]')
             page.wait_for_selector("#usage-table .tabulator-row", timeout=30000)

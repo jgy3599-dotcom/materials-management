@@ -1,5 +1,5 @@
 // 화면 전환(로그인 ↔ 앱, 메뉴 간 이동)을 담당합니다.
-import { getSession, getRole, isAdmin, signIn, signOut, onAuthChange } from "./auth.js";
+import { getSession, getRole, isAdmin, isSuperAdmin, signIn, signOut, onAuthChange } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
 import { redrawTable } from "./table.js";
 import * as boqPage from "./pages/boq.js";
@@ -97,6 +97,7 @@ function render(session) {
     if (session) {
         document.getElementById("user-email").textContent = session.user.email;
         document.getElementById("user-role").textContent = getRole(session);
+        materialsPage.setUser(session, isAdmin(session), isSuperAdmin(session));
         purchasePage.setUser(session, isAdmin(session));
         registerPage.setUser(session, isAdmin(session));
         show(appView);
