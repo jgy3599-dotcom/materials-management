@@ -3,7 +3,7 @@
 // 상태 흐름: 요청됨 → 검토중 → 승인됨 → 구매중 → 입고완료
 //           (검토중·승인됨 단계에서 반려됨으로 갈 수 있음)
 import {
-    getMaterials, getPurchaseRequests, getPurchaseHistory, countOpenRequests,
+    getMaterials, getMaterial, getPurchaseRequests, getPurchaseHistory, countOpenRequests,
     insertPurchaseRequest, startReview, approveRequest, rejectRequest,
     markPurchasing, receiveRequest, removePurchaseRequest, ALL_STATUSES, OPEN_STATUSES,
 } from "../db.js";
@@ -152,6 +152,48 @@ async function runAction(button, action, failMessage) {
 }
 
 
+// 구매요청 삭제입니다. 다른 단계들과 달리 runAction을 쓰지 않는 이유는, 입고완료였던
+// 요청을 지우면 그때 늘렸던 재고를 도로 빼기 때문입니다. 그 결과가 음수가 될 수 있어
+// 삭제한 뒤에 확인이 필요합니다(음수를 막지는 않습니다 — 실제로 음수인 자재가 있습니다).
+async function deleteRequest(button) {
+    // 응답을 기다리는 사이 팝업이 다른 요청으로 바뀔 수 있어 지금 것을 붙잡아 둡니다.
+    const request = openRequest;
+    if (!request) return;
+
+    button.disabled = true;
+    setStatus("pr-dialog-status", "");
+    try {
+        await removePurchaseRequest(request.id);
+    } catch (err) {
+        setStatus("pr-dialog-status", describeError(err, "구매요청 삭제에 실패했습니다."), "error");
+        button.disabled = false;
+        return;
+    }
+
+    document.getElementById("pr-dialog").close();
+    await load(true);
+    button.disabled = false;
+
+    // 재고를 실제로 되돌린 경우에만 지금 값을 봅니다. 되돌리지 않았는데 확인하면
+    // 원래부터 음수이던 자재까지 삭제할 때마다 경고가 뜹니다.
+    let left = null;
+    if (request["상태"] === "입고완료") {
+        try {
+            left = (await getMaterial(request.material_id))?.current_qty ?? null;
+        } catch {
+            // 못 읽으면 안내만 생략합니다. 표에는 음수가 빨갛게 보입니다.
+        }
+    }
+
+    // 성공한 삭제를 빨간 실패 상자로 보여주면 안 됩니다. 노란 상자로 알립니다.
+    setStatus("pr-status",
+        left !== null && left < 0
+            ? `구매요청을 삭제했습니다.\n\n⚠️ '${request["부품명(규격)"]}'의 현재재고가 ${left}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`
+            : "구매요청을 삭제했습니다.",
+        left !== null && left < 0 ? "warn" : "ok");
+}
+
+
 async function submitRequest(e) {
     e.preventDefault();
     const materialId = Number(document.getElementById("pr-part").value);
@@ -254,8 +296,7 @@ export function init() {
     });
 
     document.getElementById("pr-delete-btn").addEventListener("click", (e) =>
-        runAction(e.currentTarget, () => removePurchaseRequest(openRequest.id),
-            "구매요청 삭제에 실패했습니다."));
+        deleteRequest(e.currentTarget));
 }
 
 
