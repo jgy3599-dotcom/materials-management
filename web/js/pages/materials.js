@@ -22,6 +22,7 @@ let isAdmin = false;
 let isSuperAdmin = false;
 let currentEmail = "";
 let openMaterial = null;   // 지금 팝업에 열려 있는 자재 (팝업을 열 때 DB에서 새로 읽은 값)
+let busy = false;          // 저장·삭제가 DB 응답을 기다리는 중인지
 
 
 // 팝업의 입력칸과 materials 테이블 컬럼을 짝지어 둡니다.
@@ -52,10 +53,10 @@ const el = (id) => document.getElementById(id);
 
 
 // 화면에 처음 들어올 때 한 번만 불러옵니다. 메뉴를 오갈 때마다 다시 받지 않습니다.
-// 성공하면 true를 돌려줍니다. 저장·삭제 뒤에 목록을 다시 읽을 때, 그 읽기가 실패했는지
-// 알아야 "됐습니다"라고만 말하고 옛 목록을 그대로 두는 일이 없습니다.
+// 성공하면 null, 실패하면 그 사유를 돌려줍니다. 저장·삭제 뒤에 목록을 다시 읽을 때
+// 그 읽기가 실패했는지 알아야, "됐습니다"라고만 말하고 옛 목록을 그대로 두는 일이 없습니다.
 export async function load(force = false) {
-    if (loaded && !force) return true;
+    if (loaded && !force) return null;
 
     setStatus("materials-status", "불러오는 중...");
     try {
@@ -71,13 +72,16 @@ export async function load(force = false) {
         setStatus("materials-status", "");
         loaded = true;
     } catch (err) {
-        setStatus("materials-status",
-            describeError(err, "자재 목록을 불러오지 못했습니다."), "error");
-        return false;
+        const reason = describeError(err, "자재 목록을 불러오지 못했습니다.");
+        setStatus("materials-status", reason, "error");
+        // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
+        // 오갔다 돌아와도 옛 목록을 그대로 두고 다시 읽지 않습니다.
+        loaded = false;
+        return reason;
     } finally {
         if (isSuperAdmin) loadAuditLog();
     }
-    return true;
+    return null;
 }
 
 
@@ -119,14 +123,24 @@ function resetDialog() {
 // 남아 있어서, 방금 지운 자재가 아직 보이는 것을 사람이 오해하게 됩니다.
 async function finish(okMessage, warnings) {
     el("mat-dialog").close();
-    const reloaded = await load(true);
+    const reloadError = await load(true);
 
     const notes = [...warnings];
-    if (!reloaded) notes.push("목록을 새로 읽지 못했습니다. 새로고침을 눌러주세요.");
+    if (reloadError) notes.push(reloadError);
 
     setStatus("materials-status",
         notes.length ? `${okMessage}\n\n다만: ${notes.join("\n다만: ")}` : okMessage,
         notes.length ? "error" : "ok");
+}
+
+
+// DB를 기다리는 동안 창을 닫지 못하게 잠급니다.
+// 창을 닫고 다른 자재를 열어버리면, 늦게 도착한 앞 자재의 결과가 지금 열린 자재의
+// 창을 닫아버리거나 그 자재의 오류인 것처럼 표시됩니다. 아예 닫지 못하게 막는 편이
+// 곳곳에서 "지금 것이 맞나" 검사하는 것보다 단순하고 확실합니다.
+function setBusy(on) {
+    busy = on;
+    el("mat-dialog-close").disabled = on;
 }
 
 
@@ -212,6 +226,7 @@ async function saveMaterial(e) {
 
     const btn = el("mat-save-btn");
     btn.disabled = true;
+    setBusy(true);
     setStatus("mat-dialog-status", "");
     const beforeData = { ...target };
 
@@ -222,20 +237,23 @@ async function saveMaterial(e) {
     } catch (err) {
         setStatus("mat-dialog-status", describeError(err, "자재 수정에 실패했습니다."), "error");
         btn.disabled = false;
+        setBusy(false);
         return;
     }
 
+    let finalQty = before;
     if (after !== before) {
         try {
             await adjustMaterialQty(target.id, after - before);
-            // 기준값을 옮겨둡니다. 뒤에서 실패해 다시 저장하더라도 같은 차이가
-            // 두 번 더해지지 않습니다(10 → 15 → 20 이 되는 것을 막습니다).
+            finalQty = after;
             target.current_qty = after;
         } catch (err) {
-            setStatus("mat-dialog-status",
-                describeError(err, "항목은 저장했지만 현재재고 반영에 실패했습니다. 재고 값을 다시 확인해주세요."),
-                "error");
+            // ⚠️ 여기서는 재고가 반영됐는지 안 됐는지 알 수 없습니다. DB는 처리했는데
+            // 응답만 못 받았을 수도 있기 때문입니다. 그대로 다시 저장하면 같은 차이가
+            // 한 번 더 더해집니다. 그래서 DB에서 지금 값을 다시 읽어 기준을 맞춥니다.
+            await recoverAfterAdjustFailure(target, err, data, beforeData);
             btn.disabled = false;
+            setBusy(false);
             return;
         }
     }
@@ -245,12 +263,47 @@ async function saveMaterial(e) {
     const warnings = [];
     try {
         await insertAuditLog(currentEmail, "update", target.id, data.part_name,
-            beforeData, { ...data, current_qty: after });
+            beforeData, { ...data, current_qty: finalQty });
     } catch (err) {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
 
+    setBusy(false);
     await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings);
+}
+
+
+// 재고 반영이 실패했을 때 뒷정리입니다.
+// 반영됐는지 알 수 없으므로 DB에서 지금 값을 다시 읽어 기준과 입력칸을 맞춥니다.
+// 그래야 사람이 다시 저장을 눌러도 남은 차이만큼만 더해집니다.
+// 항목은 이미 저장됐으므로 감사 로그도 여기서 남깁니다(안 그러면 기록 없이 바뀝니다).
+async function recoverAfterAdjustFailure(target, err, data, beforeData) {
+    let actual = null;
+    try {
+        actual = await getMaterial(target.id);
+    } catch {
+        // 다시 읽기도 실패하면 아래에서 안내만 합니다.
+    }
+
+    if (actual) {
+        target.current_qty = actual.current_qty;
+        el("mat-current").value = actual.current_qty ?? 0;
+        el("mat-qty-hint").textContent =
+            `현재재고는 지금 값(${actual.current_qty ?? 0}) 대비 바뀐 만큼만 반영됩니다.`;
+    }
+
+    try {
+        await insertAuditLog(currentEmail, "update", target.id, data.part_name,
+            beforeData, { ...data, current_qty: actual ? actual.current_qty : "확인필요" });
+    } catch {
+        // 감사 로그까지 실패하면 아래 안내에 묻어갑니다.
+    }
+
+    setStatus("mat-dialog-status",
+        describeError(err, actual
+            ? "항목은 저장했지만 현재재고 반영은 확실하지 않습니다. 지금 DB 값을 다시 읽어 칸에 넣었으니, 맞는지 보고 다시 저장해주세요."
+            : "항목은 저장했지만 현재재고 반영은 확실하지 않고, 지금 값도 읽지 못했습니다. 창을 닫고 다시 열어 확인해주세요."),
+        "error");
 }
 
 
@@ -259,6 +312,7 @@ async function removeMaterial() {
 
     const btn = el("mat-delete-btn");
     btn.disabled = true;
+    setBusy(true);
     setStatus("mat-dialog-status", "");
     const removed = { ...openMaterial };
     try {
@@ -275,6 +329,7 @@ async function removeMaterial() {
                 : describeError(err, "자재 삭제에 실패했습니다."),
             "error");
         btn.disabled = false;
+        setBusy(false);
         return;
     }
 
@@ -287,6 +342,7 @@ async function removeMaterial() {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
 
+    setBusy(false);
     await finish(`'${removed.part_name}' 자재가 삭제되었습니다.`, warnings);
 }
 
@@ -298,7 +354,13 @@ export function init() {
 
     el("materials-reload-btn").addEventListener("click", () => load(true));
 
-    el("mat-dialog-close").addEventListener("click", () => el("mat-dialog").close());
+    el("mat-dialog-close").addEventListener("click", () => {
+        if (!busy) el("mat-dialog").close();
+    });
+    // Esc 키도 같은 이유로 막습니다. ✕ 버튼만 잠그면 Esc로 빠져나갈 수 있습니다.
+    el("mat-dialog").addEventListener("cancel", (e) => {
+        if (busy) e.preventDefault();
+    });
     el("mat-form").addEventListener("submit", saveMaterial);
 
     el("mat-delete-confirm").addEventListener("change", (e) => {
