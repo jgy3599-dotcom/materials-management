@@ -137,13 +137,26 @@ async function finish(okMessage, failures, notices = []) {
 }
 
 
-// DB를 기다리는 동안 창을 닫지 못하게 잠급니다.
-// 창을 닫고 다른 자재를 열어버리면, 늦게 도착한 앞 자재의 결과가 지금 열린 자재의
-// 창을 닫아버리거나 그 자재의 오류인 것처럼 표시됩니다. 아예 닫지 못하게 막는 편이
-// 곳곳에서 "지금 것이 맞나" 검사하는 것보다 단순하고 확실합니다.
+// 창 안에서 무언가를 하는 버튼 전부입니다. 하나가 DB 응답을 기다리는 동안 나머지도
+// 같이 잠가야 합니다. 닫기만 잠그면 저장을 기다리는 사이에 삭제를 누를 수 있고,
+// 지워진 자재에 저장이 뒤늦게 이어져 감사 로그와 재고가 뒤섞입니다.
+//
+// 창을 못 닫게 하는 이유는 따로 있습니다. 닫고 다른 자재를 열어버리면 늦게 도착한 앞
+// 자재의 결과가 지금 열린 자재의 창을 닫거나 그 자재의 오류인 것처럼 표시됩니다.
+// 아예 막는 편이 곳곳에서 "지금 것이 맞나" 검사하는 것보다 단순하고 확실합니다.
+const DIALOG_BUTTONS = ["mat-save-btn", "mat-delete-btn", "mat-dialog-close"];
+
+
 function setBusy(on) {
     busy = on;
-    el("mat-dialog-close").disabled = on;
+    for (const id of DIALOG_BUTTONS) el(id).disabled = on;
+
+    if (!on) {
+        // 자재를 못 불러온 창이면 저장도 잠긴 채로 둡니다.
+        el("mat-save-btn").disabled = !openMaterial;
+        // 삭제는 "삭제하겠습니다"에 체크가 되어 있을 때만 다시 풉니다.
+        el("mat-delete-btn").disabled = !el("mat-delete-confirm").checked;
+    }
 }
 
 
@@ -227,8 +240,6 @@ async function saveMaterial(e) {
         return;
     }
 
-    const btn = el("mat-save-btn");
-    btn.disabled = true;
     setBusy(true);
     setStatus("mat-dialog-status", "");
     const beforeData = { ...target };
@@ -239,7 +250,6 @@ async function saveMaterial(e) {
         await updateMaterial(target.id, data);
     } catch (err) {
         setStatus("mat-dialog-status", describeError(err, "자재 수정에 실패했습니다."), "error");
-        btn.disabled = false;
         setBusy(false);
         return;
     }
@@ -255,7 +265,6 @@ async function saveMaterial(e) {
             // 응답만 못 받았을 수도 있기 때문입니다. 그대로 다시 저장하면 같은 차이가
             // 한 번 더 더해집니다. 그래서 DB에서 지금 값을 다시 읽어 기준을 맞춥니다.
             await recoverAfterAdjustFailure(target, err, data, beforeData);
-            btn.disabled = false;
             setBusy(false);
             return;
         }
@@ -324,8 +333,6 @@ async function recoverAfterAdjustFailure(target, err, data, beforeData) {
 async function removeMaterial() {
     if (!openMaterial) return;
 
-    const btn = el("mat-delete-btn");
-    btn.disabled = true;
     setBusy(true);
     setStatus("mat-dialog-status", "");
     const removed = { ...openMaterial };
@@ -342,7 +349,6 @@ async function removeMaterial() {
                 ? "이 자재를 쓴 기록이 남아있어 삭제할 수 없습니다. 입출고 이력 · 구매요청 · 구매이력 · 수리 기록을 확인해주세요."
                 : describeError(err, "자재 삭제에 실패했습니다."),
             "error");
-        btn.disabled = false;
         setBusy(false);
         return;
     }
@@ -378,6 +384,10 @@ export function init() {
     el("mat-form").addEventListener("submit", saveMaterial);
 
     el("mat-delete-confirm").addEventListener("change", (e) => {
+        // 처리 중에는 손대지 않습니다. 여기서 풀어주면 setBusy가 잠가둔 삭제 버튼이
+        // 체크 한 번으로 되살아나서, 잠금을 만든 의미가 없어집니다.
+        // (처리가 끝나면 setBusy(false)가 체크 상태를 보고 다시 정합니다.)
+        if (busy) return;
         el("mat-delete-btn").disabled = !e.target.checked;
     });
     el("mat-delete-btn").addEventListener("click", removeMaterial);

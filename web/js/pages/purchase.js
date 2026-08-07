@@ -26,12 +26,28 @@ let openRequest = null;   // 지금 팝업에 열려 있는 요청
 let busy = false;         // 팝업의 처리가 DB 응답을 기다리는 중인지
 
 
-// DB를 기다리는 동안 팝업을 닫지 못하게 잠급니다.
-// 닫아버리면 뒤늦게 온 실패 메시지가 이미 닫힌 팝업 안에 쓰여 아무 데도 안 보이고,
-// 사람은 "안 됐나" 하며 다시 누르게 됩니다.
+// 팝업 안에서 무언가를 하는 버튼 전부입니다. 하나가 DB 응답을 기다리는 동안
+// 나머지도 같이 잠가야 합니다. 닫기만 잠그면 삭제를 기다리는 사이에 입고 처리를
+// 누를 수 있고, 삭제가 먼저 끝나 팝업이 닫히면 뒤늦게 온 입고 실패 메시지가
+// 이미 닫힌 팝업 안에 쓰여 아무 데도 안 보입니다.
+const DIALOG_BUTTONS = [
+    "pr-review-btn", "pr-approve-btn", "pr-reject-btn",
+    "pr-purchase-btn", "pr-receive-btn", "pr-delete-btn", "pr-dialog-close",
+];
+
+
 function setBusy(on) {
     busy = on;
-    document.getElementById("pr-dialog-close").disabled = on;
+    for (const id of DIALOG_BUTTONS) {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = on;
+    }
+    // 삭제는 "삭제하겠습니다"에 체크가 되어 있을 때만 다시 풉니다.
+    // 그냥 풀면 확인 절차를 건너뛰고 지울 수 있게 됩니다.
+    if (!on) {
+        document.getElementById("pr-delete-btn").disabled =
+            !document.getElementById("pr-delete-confirm").checked;
+    }
 }
 
 
@@ -155,8 +171,7 @@ function openDialog(requestId) {
 
 
 // 팝업 안에서 무언가를 처리하고, 성공하면 목록을 새로 읽어옵니다.
-async function runAction(button, action, failMessage) {
-    button.disabled = true;
+async function runAction(action, failMessage) {
     setBusy(true);
     setStatus("pr-dialog-status", "");
     try {
@@ -167,8 +182,6 @@ async function runAction(button, action, failMessage) {
     } catch (err) {
         setBusy(false);
         setStatus("pr-dialog-status", describeError(err, failMessage), "error");
-    } finally {
-        button.disabled = false;
     }
 }
 
@@ -187,12 +200,11 @@ async function readStock(materialId) {
 // 구매요청 삭제입니다. 다른 단계들과 달리 runAction을 쓰지 않는 이유는, 입고완료였던
 // 요청을 지우면 그때 늘렸던 재고를 도로 빼기 때문입니다. 그 결과가 음수가 될 수 있어
 // 삭제한 뒤에 확인이 필요합니다(음수를 막지는 않습니다 — 실제로 음수인 자재가 있습니다).
-async function deleteRequest(button) {
+async function deleteRequest() {
     // 응답을 기다리는 사이 팝업이 다른 요청으로 바뀔 수 있어 지금 것을 붙잡아 둡니다.
     const request = openRequest;
     if (!request) return;
 
-    button.disabled = true;
     setBusy(true);
     setStatus("pr-dialog-status", "");
 
@@ -206,23 +218,35 @@ async function deleteRequest(button) {
         await removePurchaseRequest(request.id);
     } catch (err) {
         setStatus("pr-dialog-status", describeError(err, "구매요청 삭제에 실패했습니다."), "error");
-        // 다시 시도할 수 있게 여기서만 되살립니다. 성공했을 때 되살리면, 목록을 읽는
-        // 사이에 사람이 다른 요청을 열었을 때 그 요청의 삭제 버튼이 확인 체크 없이 풀립니다.
-        button.disabled = false;
         setBusy(false);
         return;
     }
 
+    // ⚠️ 재고는 지운 직후에 바로 읽습니다. 목록 새로고침(자재·요청·이력을 수천 건
+    // 받아옴) 뒤에 읽으면 그 몇 초 사이 다른 사람의 출고·입고 한 건만으로도 값이
+    // 달라져서, 재고를 건드리지도 않은 '반려됨' 요청을 지웠는데 경고가 뜹니다.
+    const afterStock = await readStock(request.material_id);
+
     setBusy(false);
     document.getElementById("pr-dialog").close();
     const reloadError = await load(true);
-    const afterStock = await readStock(request.material_id);
+
+    if (reloadError) {
+        // 목록을 못 읽었으면 방금 지운 요청만이라도 표에서 뺍니다. 그대로 두면 같은
+        // 행을 또 지울 수 있는데, DB는 없는 요청도 조용히 넘어가서 "삭제했습니다"가
+        // 한 번 더 뜨고 행은 여전히 사라지지 않습니다.
+        requests = requests.filter((r) => r.id !== request.id);
+        applyStatusFilter();
+    }
 
     const notes = [];
     if (reloadError) notes.push(reloadError);
     // 재고가 실제로 바뀌었고 그 결과가 음수일 때만 말합니다. 원래부터 음수이던
     // 자재를 지웠다고 매번 경고하지는 않습니다.
-    if (afterStock !== null && afterStock < 0 && afterStock !== beforeStock) {
+    // beforeStock을 못 읽었으면(null) 바뀌었는지 알 수 없으므로 말하지 않습니다.
+    // null과 숫자를 비교하면 늘 "달라졌다"가 되어 없던 경고가 뜹니다.
+    if (beforeStock !== null && afterStock !== null
+        && afterStock < 0 && afterStock !== beforeStock) {
         notes.push(`'${request["부품명(규격)"]}'의 현재재고가 ${afterStock}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`);
     }
 
@@ -260,11 +284,13 @@ async function submitRequest(e) {
         );
 
         const partName = document.getElementById("pr-part").selectedOptions[0]?.textContent ?? "";
+        // 등록은 성공했으므로 빨간 실패 상자를 쓰지 않습니다. 실패한 줄 알고 한 번 더
+        // 누르면 중복 요청이 하나 더 쌓입니다 — 중복을 알리려다 중복을 만드는 셈입니다.
         setStatus("pr-form-status",
             openCount > 0
                 ? `⚠️ '${partName}'에 이미 진행 중인 구매요청이 ${openCount}건 있습니다. 그래도 새 요청을 등록했습니다 — 중복인지 확인해보세요.`
                 : `'${partName}' 구매요청이 등록되었습니다.`,
-            openCount > 0 ? "error" : "ok");
+            openCount > 0 ? "warn" : "ok");
 
         document.getElementById("pr-note").value = "";
         await load(true);
@@ -300,36 +326,36 @@ export function init() {
         if (busy) e.preventDefault();
     });
 
-    document.getElementById("pr-review-btn").addEventListener("click", (e) =>
-        runAction(e.currentTarget, () => startReview(openRequest.id), "검토 시작 처리에 실패했습니다."));
+    document.getElementById("pr-review-btn").addEventListener("click", () =>
+        runAction(() => startReview(openRequest.id), "검토 시작 처리에 실패했습니다."));
 
-    document.getElementById("pr-approve-btn").addEventListener("click", (e) =>
-        runAction(e.currentTarget,
+    document.getElementById("pr-approve-btn").addEventListener("click", () =>
+        runAction(
             () => approveRequest(openRequest.id, Number(document.getElementById("pr-approve-qty").value)),
             "승인 처리에 실패했습니다."));
 
-    document.getElementById("pr-reject-btn").addEventListener("click", (e) => {
+    document.getElementById("pr-reject-btn").addEventListener("click", () => {
         const reason = document.getElementById("pr-reject-reason").value.trim();
         if (!reason) {
             setStatus("pr-dialog-status", "반려 사유를 입력해주세요.", "error");
             return;
         }
-        runAction(e.currentTarget, () => rejectRequest(openRequest.id, reason), "반려 처리에 실패했습니다.");
+        runAction(() => rejectRequest(openRequest.id, reason), "반려 처리에 실패했습니다.");
     });
 
-    document.getElementById("pr-purchase-btn").addEventListener("click", (e) => {
+    document.getElementById("pr-purchase-btn").addEventListener("click", () => {
         const vendor = document.getElementById("pr-vendor").value.trim();
         if (!vendor) {
             setStatus("pr-dialog-status", "거래업체를 입력해주세요.", "error");
             return;
         }
-        runAction(e.currentTarget,
+        runAction(
             () => markPurchasing(openRequest.id, vendor, Number(document.getElementById("pr-price").value)),
             "구매 처리에 실패했습니다.");
     });
 
-    document.getElementById("pr-receive-btn").addEventListener("click", (e) =>
-        runAction(e.currentTarget,
+    document.getElementById("pr-receive-btn").addEventListener("click", () =>
+        runAction(
             () => receiveRequest(
                 openRequest.id, openRequest.material_id,
                 Number(document.getElementById("pr-receive-qty").value),
@@ -337,11 +363,14 @@ export function init() {
             "입고 처리에 실패했습니다."));
 
     document.getElementById("pr-delete-confirm").addEventListener("change", (e) => {
+        // 처리 중에는 손대지 않습니다. 여기서 풀어주면 setBusy가 잠가둔 삭제 버튼이
+        // 체크 한 번으로 되살아나서, 잠금을 만든 의미가 없어집니다.
+        // (처리가 끝나면 setBusy(false)가 체크 상태를 보고 다시 정합니다.)
+        if (busy) return;
         document.getElementById("pr-delete-btn").disabled = !e.target.checked;
     });
 
-    document.getElementById("pr-delete-btn").addEventListener("click", (e) =>
-        deleteRequest(e.currentTarget));
+    document.getElementById("pr-delete-btn").addEventListener("click", () => deleteRequest());
 }
 
 

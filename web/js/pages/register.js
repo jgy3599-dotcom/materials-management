@@ -37,6 +37,9 @@ export async function load(force = false) {
         loaded = true;
     } catch (err) {
         setStatus("reg-status", describeError(err, "카테고리 목록을 불러오지 못했습니다."), "error");
+        // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
+        // 오갔다 돌아와도 낡은 내용을 그대로 둡니다.
+        loaded = false;
     }
 }
 
