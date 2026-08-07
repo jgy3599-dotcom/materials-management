@@ -23,6 +23,16 @@ let loaded = false;
 let isAdmin = false;
 let currentEmail = "";
 let openRequest = null;   // 지금 팝업에 열려 있는 요청
+let busy = false;         // 팝업의 처리가 DB 응답을 기다리는 중인지
+
+
+// DB를 기다리는 동안 팝업을 닫지 못하게 잠급니다.
+// 닫아버리면 뒤늦게 온 실패 메시지가 이미 닫힌 팝업 안에 쓰여 아무 데도 안 보이고,
+// 사람은 "안 됐나" 하며 다시 누르게 됩니다.
+function setBusy(on) {
+    busy = on;
+    document.getElementById("pr-dialog-close").disabled = on;
+}
 
 
 function fillCategoryOptions() {
@@ -69,8 +79,10 @@ function applyStatusFilter() {
 }
 
 
+// 성공하면 null, 실패하면 그 사유를 돌려줍니다. 새로고침이 실패했는데 그 위에
+// "삭제했습니다"를 덮어쓰면, 방금 지운 요청이 표에 그대로 남은 채 성공으로 보입니다.
 export async function load(force = false) {
-    if (loaded && !force) return;
+    if (loaded && !force) return null;
 
     setStatus("pr-status", "불러오는 중...");
     try {
@@ -88,8 +100,14 @@ export async function load(force = false) {
         setStatus("pr-status", "");
         loaded = true;
     } catch (err) {
-        setStatus("pr-status", describeError(err, "구매 요청을 불러오지 못했습니다."), "error");
+        const reason = describeError(err, "구매 요청을 불러오지 못했습니다.");
+        setStatus("pr-status", reason, "error");
+        // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
+        // 오갔다 돌아와도 낡은 표를 그대로 둡니다.
+        loaded = false;
+        return reason;
     }
+    return null;
 }
 
 
@@ -139,15 +157,29 @@ function openDialog(requestId) {
 // 팝업 안에서 무언가를 처리하고, 성공하면 목록을 새로 읽어옵니다.
 async function runAction(button, action, failMessage) {
     button.disabled = true;
+    setBusy(true);
     setStatus("pr-dialog-status", "");
     try {
         await action();
+        setBusy(false);
         document.getElementById("pr-dialog").close();
         await load(true);
     } catch (err) {
+        setBusy(false);
         setStatus("pr-dialog-status", describeError(err, failMessage), "error");
     } finally {
         button.disabled = false;
+    }
+}
+
+
+// 자재 하나의 현재재고를 읽습니다. 못 읽으면 null입니다(안내를 생략할 뿐 막지 않습니다).
+async function readStock(materialId) {
+    if (!materialId) return null;
+    try {
+        return (await getMaterial(materialId))?.current_qty ?? null;
+    } catch {
+        return null;
     }
 }
 
@@ -161,36 +193,44 @@ async function deleteRequest(button) {
     if (!request) return;
 
     button.disabled = true;
+    setBusy(true);
     setStatus("pr-dialog-status", "");
+
+    // ⚠️ 재고를 되돌리는지는 "화면에 보이는 상태"로 판단하면 안 됩니다. DB는
+    // status='입고완료' 이면서 received_qty > 0 일 때만 되돌리고, 내가 목록을 읽은 뒤
+    // 다른 사람이 입고를 끝냈다면 내 화면의 상태는 아직 '구매중'입니다.
+    // 그래서 상태를 보지 않고, 지우기 전후의 재고를 직접 비교합니다.
+    const beforeStock = await readStock(request.material_id);
+
     try {
         await removePurchaseRequest(request.id);
     } catch (err) {
         setStatus("pr-dialog-status", describeError(err, "구매요청 삭제에 실패했습니다."), "error");
+        // 다시 시도할 수 있게 여기서만 되살립니다. 성공했을 때 되살리면, 목록을 읽는
+        // 사이에 사람이 다른 요청을 열었을 때 그 요청의 삭제 버튼이 확인 체크 없이 풀립니다.
         button.disabled = false;
+        setBusy(false);
         return;
     }
 
+    setBusy(false);
     document.getElementById("pr-dialog").close();
-    await load(true);
-    button.disabled = false;
+    const reloadError = await load(true);
+    const afterStock = await readStock(request.material_id);
 
-    // 재고를 실제로 되돌린 경우에만 지금 값을 봅니다. 되돌리지 않았는데 확인하면
-    // 원래부터 음수이던 자재까지 삭제할 때마다 경고가 뜹니다.
-    let left = null;
-    if (request["상태"] === "입고완료") {
-        try {
-            left = (await getMaterial(request.material_id))?.current_qty ?? null;
-        } catch {
-            // 못 읽으면 안내만 생략합니다. 표에는 음수가 빨갛게 보입니다.
-        }
+    const notes = [];
+    if (reloadError) notes.push(reloadError);
+    // 재고가 실제로 바뀌었고 그 결과가 음수일 때만 말합니다. 원래부터 음수이던
+    // 자재를 지웠다고 매번 경고하지는 않습니다.
+    if (afterStock !== null && afterStock < 0 && afterStock !== beforeStock) {
+        notes.push(`'${request["부품명(규격)"]}'의 현재재고가 ${afterStock}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`);
     }
 
-    // 성공한 삭제를 빨간 실패 상자로 보여주면 안 됩니다. 노란 상자로 알립니다.
+    // 성공한 삭제를 빨간 실패 상자로 보여주면 안 됩니다. 새로고침이 실패했을 때만
+    // 빨간색이고, 재고 안내만 있으면 노란색입니다.
     setStatus("pr-status",
-        left !== null && left < 0
-            ? `구매요청을 삭제했습니다.\n\n⚠️ '${request["부품명(규격)"]}'의 현재재고가 ${left}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`
-            : "구매요청을 삭제했습니다.",
-        left !== null && left < 0 ? "warn" : "ok");
+        notes.length ? `구매요청을 삭제했습니다.\n\n다만: ${notes.join("\n다만: ")}` : "구매요청을 삭제했습니다.",
+        reloadError ? "error" : notes.length ? "warn" : "ok");
 }
 
 
@@ -252,8 +292,13 @@ export function init() {
         ["전체", ...ALL_STATUSES].map((s) => `<option value="${s}">${s}</option>`).join("");
 
     // ---- 팝업 안의 단계별 버튼 ----
-    document.getElementById("pr-dialog-close").addEventListener("click", () =>
-        document.getElementById("pr-dialog").close());
+    document.getElementById("pr-dialog-close").addEventListener("click", () => {
+        if (!busy) document.getElementById("pr-dialog").close();
+    });
+    // Esc 키도 같은 이유로 막습니다. ✕ 버튼만 잠그면 Esc로 빠져나갈 수 있습니다.
+    document.getElementById("pr-dialog").addEventListener("cancel", (e) => {
+        if (busy) e.preventDefault();
+    });
 
     document.getElementById("pr-review-btn").addEventListener("click", (e) =>
         runAction(e.currentTarget, () => startReview(openRequest.id), "검토 시작 처리에 실패했습니다."));
