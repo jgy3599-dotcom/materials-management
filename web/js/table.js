@@ -128,9 +128,12 @@ function cellClasses(rows, name, kind) {
 //   elementId : 표를 넣을 자리의 id
 //   rows      : {컬럼명: 값} 형태의 객체 배열
 //   columns   : 보여줄 컬럼 이름 배열 (순서대로)
-//   options   : { pageSize, selectable, onRowClick }
+//   options   : { pageSize, selectable, onRowClick, onRowDblClick }
+//
+// onRowClick은 한 번 눌렀을 때, onRowDblClick은 두 번 눌렀을 때 불립니다.
+// 값을 고치는 창처럼 잘못 열리면 곤란한 것은 두 번 누르기를 씁니다.
 export function renderTable(elementId, rows, columns, options = {}) {
-    const { pageSize = 25, selectable = false, onRowClick = null } = options;
+    const { pageSize = 25, selectable = false, onRowClick = null, onRowDblClick = null } = options;
 
     // 같은 자리에 다시 그릴 때는 이전 표를 정리합니다. 안 그러면 겹쳐 쌓입니다.
     if (tables.has(elementId)) {
@@ -199,6 +202,10 @@ export function renderTable(elementId, rows, columns, options = {}) {
 
     if (onRowClick) {
         table.on("rowClick", (_e, row) => onRowClick(row.getData()));
+    }
+
+    if (onRowDblClick) {
+        table.on("rowDblClick", (_e, row) => onRowDblClick(row.getData()));
     }
 
     // 표를 다 만든 뒤에 한 번 다시 그립니다.

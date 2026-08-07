@@ -58,9 +58,11 @@ export async function load(force = false) {
     setStatus("materials-status", "불러오는 중...");
     try {
         const rows = await getMaterials();
+        // 수정 창은 두 번 눌러야 열립니다. 한 번 누르는 것만으로 열리면 표를 훑다가
+        // 실수로 열기 쉽습니다. 한 번 누르면 행이 선택만 되어 어느 줄인지 보입니다.
         renderTable(TABLE_ID, rows, COLUMNS, {
             selectable: isAdmin,
-            onRowClick: isAdmin ? (row) => openDialog(row) : null,
+            onRowDblClick: isAdmin ? (row) => openDialog(row) : null,
         });
         el("materials-count").textContent =
             `총 ${rows.length.toLocaleString()}건의 자재가 등록되어 있습니다.`;
@@ -234,7 +236,7 @@ export function setUser(session, admin, superAdmin) {
     }
 
     el("materials-edit-hint").textContent = isAdmin
-        ? "고칠 자재의 행을 클릭하면 수정/삭제 창이 열립니다."
+        ? "고칠 자재의 행을 두 번 클릭하면 수정/삭제 창이 열립니다."
         : "자재 수정/삭제는 관리자만 할 수 있습니다.";
     el("materials-audit").classList.toggle("hidden", !isSuperAdmin);
 }

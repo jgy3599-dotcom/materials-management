@@ -96,11 +96,18 @@ def main():
                 check("수정 팝업 화면이 배포되어 있다", False, "아직 배포 전입니다")
             else:
                 admin = "관리자만" not in page.locator("#materials-edit-hint").inner_text()
-                page.locator("#materials-table .tabulator-row").first.click()
+                # 한 번 눌러서는 안 열리고, 두 번 눌러야 열리는 게 정상입니다.
+                row = page.locator("#materials-table .tabulator-row").first
+                row.click()
+                page.wait_for_timeout(700)
+                check("한 번만 누르면 수정 팝업이 열리지 않는다",
+                      page.locator("#mat-dialog[open]").count() == 0)
+
+                row.dblclick()
                 page.wait_for_timeout(1500)
                 opened = page.locator("#mat-dialog[open]").count() > 0
                 if admin:
-                    check("행을 누르면 수정 팝업이 열린다", opened)
+                    check("행을 두 번 누르면 수정 팝업이 열린다", opened)
                     check("팝업에 부품명이 채워져 있다",
                           opened and page.input_value("#mat-part").strip() != "")
                     check("현재재고 안내 문구가 있다",
@@ -110,7 +117,7 @@ def main():
                     if opened:
                         page.click("#mat-dialog-close")
                 else:
-                    check("관리자가 아니면 수정 팝업이 열리지 않는다", not opened)
+                    check("관리자가 아니면 두 번 눌러도 수정 팝업이 열리지 않는다", not opened)
 
             print("\n[5] 사용(출고) 이력 - 표에 행이 그려지는지")
             page.click('.nav-btn[data-page="usage"]')
