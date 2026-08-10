@@ -30,9 +30,13 @@ let busy = false;         // 팝업의 처리가 DB 응답을 기다리는 중�
 // 나머지도 같이 잠가야 합니다. 닫기만 잠그면 삭제를 기다리는 사이에 입고 처리를
 // 누를 수 있고, 삭제가 먼저 끝나 팝업이 닫히면 뒤늦게 온 입고 실패 메시지가
 // 이미 닫힌 팝업 안에 쓰여 아무 데도 안 보입니다.
+//
+// "삭제하겠습니다" 체크박스도 함께 잠급니다. 안 잠그면 처리 중에 눌렀을 때 체크 표시만
+// 바뀌고 삭제 버튼은 회색 그대로라, 사용자는 "체크했는데 왜 안 풀리지"를 겪습니다.
 const DIALOG_BUTTONS = [
     "pr-review-btn", "pr-approve-btn", "pr-reject-btn",
     "pr-purchase-btn", "pr-receive-btn", "pr-delete-btn", "pr-dialog-close",
+    "pr-delete-confirm",
 ];
 
 
@@ -173,7 +177,9 @@ function openDialog(requestId) {
 // 팝업 안에서 무언가를 처리하고, 성공하면 목록을 새로 읽어옵니다.
 async function runAction(action, failMessage) {
     setBusy(true);
-    setStatus("pr-dialog-status", "");
+    // 팝업이 통째로 잠기므로 왜 안 눌리는지 알려줍니다. 응답이 느릴 때 아무 문구도
+    // 없으면 닫을 수 없는 팝업으로 보입니다.
+    setStatus("pr-dialog-status", "처리 중...");
     try {
         await action();
         setBusy(false);
@@ -206,7 +212,7 @@ async function deleteRequest() {
     if (!request) return;
 
     setBusy(true);
-    setStatus("pr-dialog-status", "");
+    setStatus("pr-dialog-status", "처리 중...");
 
     // ⚠️ 재고를 되돌리는지는 "화면에 보이는 상태"로 판단하면 안 됩니다. DB는
     // status='입고완료' 이면서 received_qty > 0 일 때만 되돌리고, 내가 목록을 읽은 뒤
@@ -241,13 +247,19 @@ async function deleteRequest() {
 
     const notes = [];
     if (reloadError) notes.push(reloadError);
-    // 재고가 실제로 바뀌었고 그 결과가 음수일 때만 말합니다. 원래부터 음수이던
-    // 자재를 지웠다고 매번 경고하지는 않습니다.
-    // beforeStock을 못 읽었으면(null) 바뀌었는지 알 수 없으므로 말하지 않습니다.
-    // null과 숫자를 비교하면 늘 "달라졌다"가 되어 없던 경고가 뜹니다.
-    if (beforeStock !== null && afterStock !== null
-        && afterStock < 0 && afterStock !== beforeStock) {
-        notes.push(`'${request["부품명(규격)"]}'의 현재재고가 ${afterStock}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`);
+    // 지운 뒤 재고가 음수면 알립니다. 다만 "이번 삭제 때문인지"는 삭제 전 재고를
+    // 읽었을 때만 알 수 있습니다.
+    if (afterStock !== null && afterStock < 0) {
+        const name = request["부품명(규격)"];
+        if (beforeStock === null) {
+            // 삭제 전 재고를 못 읽었습니다(통신 오류 등). 원래 음수였는지 이번에
+            // 음수가 됐는지 구분할 수 없으니, 단정하지 말고 현재 값만 알립니다.
+            notes.push(`'${name}'의 현재재고가 ${afterStock}개입니다. 삭제 전 재고를 읽지 못해 이번 삭제 때문인지는 알 수 없습니다. 재고나 이력을 확인해보세요.`);
+        } else if (afterStock !== beforeStock) {
+            // 재고가 실제로 바뀌었습니다. 원래부터 음수이던 자재를 지웠다고
+            // 매번 경고하지는 않으므로, 값이 달라졌을 때만 말합니다.
+            notes.push(`'${name}'의 현재재고가 ${afterStock}개입니다. 입고분을 되돌리면서 음수가 되었습니다. 재고나 이력을 확인해보세요.`);
+        }
     }
 
     // 성공한 삭제를 빨간 실패 상자로 보여주면 안 됩니다. 새로고침이 실패했을 때만

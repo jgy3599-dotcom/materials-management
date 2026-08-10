@@ -1,8 +1,4 @@
 // 구매 필요 알림 화면입니다. 표준재고보다 부족한 자재를 모아서 보여줍니다.
-//
-// 알림 메일 발송은 아직 옮기지 않았습니다. 브라우저에서는 메일 서버에 직접 접속할 수 없어서
-// Supabase Edge Function을 따로 만들어야 하기 때문입니다. 그동안은 Streamlit 앱에서
-// 보내시면 됩니다. (PORTING.md 참고)
 import { getMaterials } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, esc } from "../ui.js";

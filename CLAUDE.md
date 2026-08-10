@@ -39,11 +39,18 @@ For multi-step tasks, state a brief plan:
 
 # User Environment & Technology Stack
 - **OS:** Windows (개발은 개인 노트북, 최종 구동은 회사 노트북 웹앱 환경)
-- **Language:** Python 3.x
-- **Framework:** Streamlit (초보자용 쉽고 강력한 웹 프레임워크)
+- **Language:** 정적 HTML + 순수 JavaScript (빌드 과정 없음, CDN 라이브러리)
+- **Backend:** Supabase (PostgreSQL + Auth + RLS + RPC 함수)
+- **호스팅:** Cloudflare Pages (`main` 브랜치 push 시 자동 배포)
 ## Special Instruction
 - 사용자는 완전 코딩 초보자이므로, 모든 코드를 수정하거나 명령어를 실행하기 전에 초보자 눈높이에 맞춰 한 줄씩 친절하게 설명해 줄 것.
 - **반드시 모든 답변과 설명은 100% 한국어(Korean)로만 작성할 것.**
 
 ## Development Commands
-- **웹앱 실행:** `streamlit run app.py`
+- **배포:** `git add web/ ...` → `git commit` → `git push` (Cloudflare Pages가 자동 재배포)
+- **배포 확인:** `python verify_web.py --show` (배포된 사이트를 브라우저로 조종해서 검사)
+
+## 참고 문서
+- `자재이관_주의사항.md` — 원본 엑셀(`부품관리.xlsx`)을 DB에 다시 넣을 때 볼 것
+- `시스템_규칙과_배경.md` — 재고 차감 규칙·권한·보안 등 시스템 전반의 배경
+- `web/PORTING.md` — 화면별 이전 체크리스트

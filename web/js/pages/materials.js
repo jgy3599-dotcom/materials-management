@@ -144,7 +144,12 @@ async function finish(okMessage, failures, notices = []) {
 // 창을 못 닫게 하는 이유는 따로 있습니다. 닫고 다른 자재를 열어버리면 늦게 도착한 앞
 // 자재의 결과가 지금 열린 자재의 창을 닫거나 그 자재의 오류인 것처럼 표시됩니다.
 // 아예 막는 편이 곳곳에서 "지금 것이 맞나" 검사하는 것보다 단순하고 확실합니다.
-const DIALOG_BUTTONS = ["mat-save-btn", "mat-delete-btn", "mat-dialog-close"];
+//
+// "삭제하겠습니다" 체크박스도 함께 잠급니다. 안 잠그면 처리 중에 눌렀을 때 체크 표시만
+// 바뀌고 삭제 버튼은 회색 그대로라, 사용자는 "체크했는데 왜 안 풀리지"를 겪습니다.
+const DIALOG_BUTTONS = [
+    "mat-save-btn", "mat-delete-btn", "mat-dialog-close", "mat-delete-confirm",
+];
 
 
 function setBusy(on) {
@@ -152,10 +157,11 @@ function setBusy(on) {
     for (const id of DIALOG_BUTTONS) el(id).disabled = on;
 
     if (!on) {
-        // 자재를 못 불러온 창이면 저장도 잠긴 채로 둡니다.
+        // 자재를 못 불러온 창이면 저장·삭제는 잠긴 채로 둡니다.
         el("mat-save-btn").disabled = !openMaterial;
+        el("mat-delete-confirm").disabled = !openMaterial;
         // 삭제는 "삭제하겠습니다"에 체크가 되어 있을 때만 다시 풉니다.
-        el("mat-delete-btn").disabled = !el("mat-delete-confirm").checked;
+        el("mat-delete-btn").disabled = !openMaterial || !el("mat-delete-confirm").checked;
     }
 }
 
@@ -241,7 +247,9 @@ async function saveMaterial(e) {
     }
 
     setBusy(true);
-    setStatus("mat-dialog-status", "");
+    // 창이 통째로 잠기므로 왜 안 눌리는지 알려줍니다. 응답이 느릴 때 아무 문구도
+    // 없으면 닫을 수 없는 팝업으로 보입니다.
+    setStatus("mat-dialog-status", "처리 중...");
     const beforeData = { ...target };
 
     // 항목 저장과 재고 반영은 DB에 따로 나가므로, 앞은 됐는데 뒤가 실패할 수 있습니다.
@@ -334,7 +342,7 @@ async function removeMaterial() {
     if (!openMaterial) return;
 
     setBusy(true);
-    setStatus("mat-dialog-status", "");
+    setStatus("mat-dialog-status", "처리 중...");
     const removed = { ...openMaterial };
     try {
         await deleteMaterial(removed.id);
@@ -362,6 +370,9 @@ async function removeMaterial() {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
 
+    // 자재는 이미 사라졌으니 대상을 비웁니다. 이걸 안 비우면 바로 아래 setBusy(false)가
+    // 저장·삭제 버튼을 도로 풀어서, 없는 자재에 대고 다시 삭제를 누를 수 있습니다.
+    openMaterial = null;
     setBusy(false);
     await finish(`'${removed.part_name}' 자재가 삭제되었습니다.`, warnings);
 }
