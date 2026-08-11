@@ -83,7 +83,14 @@ begin
     end if;
     return NEW;
 end;
-$$ language plpgsql security definer;
+-- set search_path = '' 은 "이름을 찾을 폴더 목록을 비워라"는 뜻입니다. 그러면 스키마를
+-- 정확히 적은 이름(auth.jwt() 등)만 통하고, 함수를 부르는 쪽이 목록을 바꿔치기해
+-- 가짜 함수를 집어들게 만드는 길이 막힙니다. security definer는 테이블 주인 권한으로
+-- 도는 설정이라 이 대비가 특히 중요합니다.
+-- 지금 이 함수는 이미 auth.jwt()로 스키마를 정확히 적고 있어 동작은 달라지지 않습니다.
+-- 나중에 여기에 스키마 없는 이름을 한 줄이라도 추가하면 그때부터 실제 구멍이 되므로
+-- 미리 막아둡니다.
+$$ language plpgsql security definer set search_path = '';
 
 create trigger materials_restrict_update
     before update on materials
