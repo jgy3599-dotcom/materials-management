@@ -26,7 +26,7 @@ TEST_PART_NAME = "__검증용_임시자재__(자동삭제됨)"
 START_QTY = 10
 
 results = []
-created = {"material_id": None, "request_id": None}
+created = {"material_id": None}
 
 
 def check(name, expected, actual):
@@ -41,6 +41,38 @@ def check_true(name, condition, detail=""):
     results.append((name, bool(condition), detail))
     print(f"  [{'통과' if condition else '실패'}] {name}   {detail}")
     return bool(condition)
+
+
+def expect_rejected(name, action, must_contain):
+    """DB가 거부해야 하는 동작을 시험합니다.
+
+    ⚠️ '오류가 났으니 통과'로 처리하면 안 됩니다. 함수가 삭제되거나 이름이 바뀌면
+    (PGRST202 '함수를 찾을 수 없음'), 토큰이 만료되면, 네트워크가 끊기면 — 전부
+    오류입니다. 그걸 통과로 세면 검사하려던 방어가 아예 없는데도 전체 통과가 뜹니다.
+    그래서 오류 메시지가 그 방어의 문구인지까지 확인합니다.
+    """
+    try:
+        action()
+    except Exception as e:
+        message = getattr(e, "message", None) or str(e)
+        if must_contain in message:
+            return check_true(name, True, f"거부 사유: {message[:70]}")
+        return check_true(name, False,
+                          f"거부는 됐지만 다른 이유입니다. '{must_contain}'가 없음: {message[:70]}")
+    return check_true(name, False, "거부되지 않고 그냥 통과했습니다 (방어가 없습니다)")
+
+
+def one_row(response, what):
+    """.data[0]을 안전하게 꺼냅니다.
+
+    행이 없으면 IndexError로 죽는 대신 실패로 기록하고 None을 돌려줍니다. 없어지는
+    상황이 바로 이 스크립트가 잡으려는 버그라, 거기서 죽으면 요약도 못 보고 뒤쪽
+    검사도 통째로 건너뛰게 됩니다.
+    """
+    if not response.data:
+        check_true(f"{what}(행이 있어야 함)", False, "행이 하나도 없습니다")
+        return None
+    return response.data[0]
 
 
 def main():
@@ -115,14 +147,53 @@ def main():
         check("수리 건은 안 늘었다", 1, count("repairs", "material_id", mid))
         check("출고 이력은 늘었다", 2, count("history", "material_id", mid))
 
+        # ---------- 2-1 ----------
+        # 화면은 min="1" required로 막지만 이 RPC는 로그인한 사람 전체에게 열려 있습니다.
+        # 음수가 통과하면 "현재재고 - (-5)"가 되어 재고가 오히려 늘고, quantity가 음수인
+        # 수리 건까지 생겨 그 건은 이후 반납이 영구히 불가능해집니다.
+        print("\n[2-1] 출고 수량 음수 시도 (거부돼야 함)")
+        expect_rejected(
+            "DB가 음수 출고를 거부했다",
+            lambda: client.rpc("register_usage", {
+                "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": -5,
+                "p_manager": "한진 SPARE", "p_note": "음수 검증", "p_equipment_id": None,
+                "p_problem": None, "p_action_taken": None, "p_part_memo": None,
+                "p_deduct_stock": True,
+            }).execute(),
+            "수량은 1개 이상")
+        check("거부됐으므로 재고는 그대로다", START_QTY - 3, qty())
+        check("이력도 안 늘었다", 2, count("history", "material_id", mid))
+
         # ---------- 3 ----------
         print("\n[3] 구매요청 -> 입고 처리 5개 (재고가 늘고 구매이력이 남아야 함)")
         req = client.table("purchase_requests").insert({
             "material_id": mid, "requested_qty": 5, "status": "구매중",
             "requester_email": auth.user.email, "vendor": "검증용업체", "unit_price": 1000,
         }).execute()
-        created["request_id"] = req.data[0]["id"]
-        rid = created["request_id"]
+        # 뒷정리는 material_id로 지우므로 요청 id를 created에 담아둘 필요가 없습니다.
+        rid = req.data[0]["id"]
+
+        # 아직 '구매중' 상태입니다. 입고가 성공하기 전에 방어 두 개를 먼저 시험합니다.
+        print("\n[3-1] 입고 수량 0 시도 (거부돼야 함)")
+        expect_rejected(
+            "DB가 0개 입고를 거부했다",
+            lambda: client.rpc("receive_purchase_request", {
+                "p_request_id": rid, "p_material_id": mid, "p_received_qty": 0,
+                "p_vendor": "검증용업체", "p_unit_price": 1000, "p_received_on": TODAY,
+            }).execute(),
+            "입고 수량은 1개 이상")
+
+        # 요청에 적힌 자재와 다른 자재로 입고하면, 삭제(원복)는 요청 행의 자재를
+        # 되돌리므로 A는 영구히 늘고 B는 영구히 주는 어긋남이 생깁니다.
+        print("\n[3-2] 다른 자재로 입고 시도 (거부돼야 함)")
+        expect_rejected(
+            "DB가 자재 불일치를 거부했다",
+            lambda: client.rpc("receive_purchase_request", {
+                "p_request_id": rid, "p_material_id": -1, "p_received_qty": 5,
+                "p_vendor": "검증용업체", "p_unit_price": 1000, "p_received_on": TODAY,
+            }).execute(),
+            "요청에 적힌 자재와 다른 자재")
+        check("거부됐으므로 재고는 그대로다", START_QTY - 3, qty())
 
         client.rpc("receive_purchase_request", {
             "p_request_id": rid, "p_material_id": mid, "p_received_qty": 5,
@@ -130,52 +201,123 @@ def main():
         }).execute()
         check("재고가 5개 늘었다", START_QTY - 3 + 5, qty())
         check("구매이력이 1줄 생겼다", 1, count("purchase_history", "material_id", mid))
-        status = client.table("purchase_requests").select("status").eq("id", rid).execute().data[0]["status"]
-        check("요청 상태가 바뀌었다", "입고완료", status)
+        req_row = one_row(
+            client.table("purchase_requests").select("status").eq("id", rid).execute(),
+            "구매요청")
+        if req_row:
+            check("요청 상태가 바뀌었다", "입고완료", req_row["status"])
+
+        # ---------- 3-3 ----------
+        # 화면 새로고침이 실패해 행이 '구매중'으로 남으면 관리자가 다시 누릅니다.
+        # 막지 않으면 재고가 두 배로 들어가고 구매이력도 두 건 생깁니다.
+        print("\n[3-3] 같은 요청 두 번 입고 시도 (거부돼야 함)")
+        expect_rejected(
+            "DB가 두 번째 입고를 거부했다",
+            lambda: client.rpc("receive_purchase_request", {
+                "p_request_id": rid, "p_material_id": mid, "p_received_qty": 5,
+                "p_vendor": "검증용업체", "p_unit_price": 1000, "p_received_on": TODAY,
+            }).execute(),
+            "이미 입고 처리된 요청")
+        check("재고가 두 배로 안 늘었다", START_QTY - 3 + 5, qty())
+        check("구매이력도 안 늘었다", 1, count("purchase_history", "material_id", mid))
+
+        # ---------- 3-4 ----------
+        # A가 구매중 행의 팝업을 열어둔 사이 B가 반려하면, A의 화면에는 입고 버튼이
+        # 그대로 보입니다. '입고완료'만 막으면 반려된 건의 재고가 들어갑니다.
+        print("\n[3-4] 반려된 요청 입고 시도 (거부돼야 함)")
+        rejected_req = client.table("purchase_requests").insert({
+            "material_id": mid, "requested_qty": 3, "status": "반려됨",
+            "requester_email": auth.user.email, "reject_reason": "검증용",
+        }).execute()
+        rejected_rid = rejected_req.data[0]["id"]
+        expect_rejected(
+            "DB가 반려된 요청의 입고를 거부했다",
+            lambda: client.rpc("receive_purchase_request", {
+                "p_request_id": rejected_rid, "p_material_id": mid, "p_received_qty": 3,
+                "p_vendor": "검증용업체", "p_unit_price": 1000, "p_received_on": TODAY,
+            }).execute(),
+            "구매중인 요청만")
+        check("반려 건으로 재고가 안 늘었다", START_QTY - 3 + 5, qty())
+        client.table("purchase_requests").delete().eq("id", rejected_rid).execute()
 
         # ---------- 4 ----------
         print("\n[4] 그 구매요청 삭제 (재고는 원복, 구매이력은 남되 취소표시)")
         client.rpc("remove_purchase_request", {"p_request_id": rid}).execute()
         check("재고가 원복됐다", START_QTY - 3, qty())
         check("구매이력은 안 지워졌다", 1, count("purchase_history", "material_id", mid))
-        ph = client.table("purchase_history").select("reverted_at").eq("material_id", mid).execute().data[0]
-        check_true("구매이력에 취소일시가 채워졌다", ph["reverted_at"] is not None, f"reverted_at={ph['reverted_at']}")
+        # order by를 붙입니다. 여러 건이면 어느 행이 올지 정해져 있지 않아, 정렬이
+        # 없으면 엉뚱한 행의 reverted_at을 보고 판정할 수 있습니다.
+        ph = one_row(
+            client.table("purchase_history").select("reverted_at")
+                  .eq("material_id", mid).order("id").execute(),
+            "구매이력")
+        if ph:
+            check_true("구매이력에 취소일시가 채워졌다",
+                       ph["reverted_at"] is not None, f"reverted_at={ph['reverted_at']}")
         check("구매요청은 삭제됐다", 0, count("purchase_requests", "id", rid))
-        created["request_id"] = None
 
-        # ---------- 5 ----------
-        repair_id = client.table("repairs").select("id").eq("material_id", mid).execute().data[0]["id"]
-        print(f"\n[5] 수리 반납 - '정상복귀' 1개 (재고가 늘어야 함)  수리건 id={repair_id}")
-        client.rpc("add_repair_return", {
-            "p_repair_id": repair_id, "p_returned_qty": 1, "p_returned_on": TODAY,
-            "p_outcome": "정상복귀", "p_note": "검증용",
-        }).execute()
-        check("재고가 1개 늘었다", START_QTY - 3 + 1, qty())
+        # ---------- 5·6·7 ----------
+        # 1번에서 만들어진 수리 건이 있어야 아래 셋을 할 수 있습니다. 없으면(=1번이
+        # 이미 실패한 상황) 죽지 않고 건너뛰어, 요약까지는 볼 수 있게 합니다.
+        repair_row = one_row(
+            client.table("repairs").select("id").eq("material_id", mid).order("id").execute(),
+            "수리 건")
+        if repair_row is None:
+            print("\n[5~7] 수리 건이 없어 건너뜁니다 (1번을 먼저 확인하세요)")
+        else:
+            repair_id = repair_row["id"]
 
-        # ---------- 6 ----------
-        print("\n[6] 수리 반납 - '폐기' 1개 (재고는 그대로여야 함)")
-        client.rpc("add_repair_return", {
-            "p_repair_id": repair_id, "p_returned_qty": 1, "p_returned_on": TODAY,
-            "p_outcome": "폐기", "p_note": "검증용",
-        }).execute()
-        check("재고가 그대로다", START_QTY - 3 + 1, qty())
-        check("반납 기록이 2건 쌓였다", 2, count("repair_returns", "repair_id", repair_id))
-
-        # ---------- 7 ----------
-        print("\n[7] 초과 반납 시도 - 보낸 3개 중 이미 2개 반납된 상태에서 5개 더 (거부돼야 함)")
-        before = qty()
-        rejected, message = False, ""
-        try:
+            print(f"\n[5] 수리 반납 - '정상복귀' 1개 (재고가 늘어야 함)  수리건 id={repair_id}")
             client.rpc("add_repair_return", {
-                "p_repair_id": repair_id, "p_returned_qty": 5, "p_returned_on": TODAY,
-                "p_outcome": "정상복귀", "p_note": "초과 반납 검증",
+                "p_repair_id": repair_id, "p_returned_qty": 1, "p_returned_on": TODAY,
+                "p_outcome": "정상복귀", "p_note": "검증용",
             }).execute()
-        except Exception as e:
-            rejected = True
-            message = getattr(e, "message", None) or str(e)
-        check_true("DB가 초과 반납을 거부했다", rejected, f"응답: {message[:90]}")
-        check("거부됐으므로 재고는 그대로다", before, qty())
-        check("반납 기록도 안 늘었다", 2, count("repair_returns", "repair_id", repair_id))
+            check("재고가 1개 늘었다", START_QTY - 3 + 1, qty())
+
+            print("\n[6] 수리 반납 - '폐기' 1개 (재고는 그대로여야 함)")
+            client.rpc("add_repair_return", {
+                "p_repair_id": repair_id, "p_returned_qty": 1, "p_returned_on": TODAY,
+                "p_outcome": "폐기", "p_note": "검증용",
+            }).execute()
+            check("재고가 그대로다", START_QTY - 3 + 1, qty())
+            check("반납 기록이 2건 쌓였다", 2, count("repair_returns", "repair_id", repair_id))
+
+            # ⚠️ 여기서 요청하는 수량이 2개인 것이 중요합니다. 보낸 3개 중 이미 2개가
+            # 반납된 상태라 2+2=4 > 3 이라 거부돼야 합니다. 예전에는 5개를 요청했는데,
+            # 그러면 5 > 3 이라서 "이미 반납한 양"을 아예 안 세는 엉터리 구현도 통과했습니다.
+            # 진짜 방어(이미반납 + 이번요청 > 보낸수량)를 시험하려면 2개여야 합니다.
+            print("\n[7] 초과 반납 시도 - 보낸 3개 중 이미 2개 반납된 상태에서 2개 더 (거부돼야 함)")
+            before = qty()
+            expect_rejected(
+                "DB가 초과 반납을 거부했다",
+                lambda: client.rpc("add_repair_return", {
+                    "p_repair_id": repair_id, "p_returned_qty": 2, "p_returned_on": TODAY,
+                    "p_outcome": "정상복귀", "p_note": "초과 반납 검증",
+                }).execute(),
+                "보낸 수량")
+            check("거부됐으므로 재고는 그대로다", before, qty())
+            check("반납 기록도 안 늘었다", 2, count("repair_returns", "repair_id", repair_id))
+
+            # 재고 복구는 '정상복귀'일 때만 하는데, 목록의 반납 합계는 결과와 상관없이
+            # 전부 더합니다. 그래서 엉뚱한 값이 들어오면 "재고는 안 돌아왔는데 화면에는
+            # 복귀완료"인 상태가 됩니다.
+            print("\n[8] 반납 결과에 엉뚱한 값 시도 (거부돼야 함)")
+            expect_rejected(
+                "DB가 잘못된 반납 결과를 거부했다",
+                lambda: client.rpc("add_repair_return", {
+                    "p_repair_id": repair_id, "p_returned_qty": 1, "p_returned_on": TODAY,
+                    "p_outcome": "정상복구", "p_note": "오타 검증",
+                }).execute(),
+                "반납 결과는 정상복귀 또는 폐기")
+            check("반납 기록이 여전히 2건이다", 2, count("repair_returns", "repair_id", repair_id))
+
+    except Exception as e:
+        # ⚠️ 이 except를 빼지 마세요. 없으면 오류가 그대로 밖으로 나가서, 뒷정리는
+        # 되지만 아래 결과 요약에 도달하지 못합니다. 정작 진단이 필요한 순간에
+        # "N개 실패: ..." 대신 오류 덩어리만 보이게 됩니다.
+        detail = f"{type(e).__name__}: {getattr(e, 'message', None) or e}"
+        print(f"\n  [실패] 검사 도중 오류가 나서 중단했습니다   {detail}")
+        results.append(("검사가 끝까지 진행됐다", False, detail))
 
     finally:
         # ---------- 뒷정리 ----------
