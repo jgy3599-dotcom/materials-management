@@ -15,9 +15,13 @@ export async function getSession() {
 
 
 // 권한을 읽습니다. 계정에 권한이 안 적혀 있으면 '일반'으로 봅니다.
-// (Streamlit 앱의 판단 기준과 같습니다.)
+//
+// ⚠️ user_metadata가 아니라 app_metadata입니다. user_metadata는 로그인한 본인이
+// 브라우저에서 직접 고칠 수 있어서, 거기에 권한을 두면 일반 계정이 스스로 관리자가
+// 됩니다. app_metadata는 service_role 키로만 쓸 수 있습니다(manage_users.py).
+// DB의 권한 정책들도 같은 칸을 봅니다. 한쪽만 바꾸면 화면과 DB가 어긋납니다.
 export function getRole(session) {
-    return session?.user?.user_metadata?.role ?? "일반";
+    return session?.user?.app_metadata?.role ?? "일반";
 }
 
 

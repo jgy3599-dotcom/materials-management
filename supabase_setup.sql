@@ -42,7 +42,7 @@ create policy "authenticated insert materials" on materials
 create policy "authenticated update materials" on materials
     for update using (auth.role() = 'authenticated');
 create policy "admin delete materials" on materials
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 -- history: 로그인한 사람이면 조회/등록 가능. 수정은 앱에서 직접 쓰진 않지만,
 -- 비고 필드를 나눠 담는 것 같은 일괄 정리 작업을 위해 관리자에게는 열어둡니다.
@@ -51,21 +51,28 @@ create policy "authenticated select history" on history
 create policy "authenticated insert history" on history
     for insert with check (auth.role() = 'authenticated');
 create policy "admin update history" on history
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin delete history" on history
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 -- 관리자가 아니면 current_qty(현재재고) 외의 필드는 바꿀 수 없도록 막는 트리거입니다.
 -- (입출고 등록 시 일반 사용자도 current_qty는 바꿔야 하므로, RLS 정책만으로는 이 구분을 표현할 수 없어 트리거로 처리합니다.)
 create or replace function restrict_material_update() returns trigger as $$
 begin
+    -- ⚠️⚠️ user_metadata로 되돌리지 마세요. 그 칸은 로그인한 본인이 브라우저에서
+    -- supabase.auth.updateUser({ data: { role: "관리자" } }) 한 줄로 고칠 수 있습니다.
+    -- 접속 키는 사이트에 공개되어 있으므로(공개용 키라 그 자체는 정상), 권한을 그 칸에
+    -- 두면 일반 계정이 스스로 관리자가 됩니다. app_metadata는 service_role 키로만
+    -- 쓸 수 있어서 본인이 못 고칩니다. 이 파일의 모든 관리자 정책이 같은 이유로
+    -- app_metadata를 봅니다. (2026-08-11 변경)
+    --
     -- ⚠️ coalesce를 빼지 마세요. 권한이 안 적힌 계정은 이 값이 NULL인데, SQL에서
     -- NULL <> '관리자' 의 결과는 거짓이 아니라 NULL이고 IF는 NULL이면 블록을 통째로
     -- 건너뜁니다. 즉 예외가 안 나고 그냥 통과해서, 방어가 있으나 마나가 됩니다.
     -- materials의 UPDATE 정책은 "로그인했으면 허용"이라 이 트리거가 유일한 방어선입니다.
     -- (RLS 정책들은 = '관리자' 형태라 NULL이면 거짓=차단으로 안전하게 닫힙니다.
     --  부등호를 쓰는 여기만 반대로 열립니다.)
-    if coalesce(auth.jwt() -> 'user_metadata' ->> 'role', '') <> '관리자' then
+    if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> '관리자' then
         if NEW.category is distinct from OLD.category
             or NEW.part_name is distinct from OLD.part_name
             or NEW.install_location is distinct from OLD.install_location
@@ -183,7 +190,7 @@ create policy "authenticated select boq" on boq
 create policy "superadmin insert boq" on boq
     for insert with check (is_superadmin());
 create policy "admin update boq" on boq
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "superadmin delete boq" on boq
     for delete using (is_superadmin());
 
@@ -236,9 +243,9 @@ create policy "authenticated select purchase_requests" on purchase_requests
 create policy "authenticated insert purchase_requests" on purchase_requests
     for insert with check (auth.role() = 'authenticated');
 create policy "admin update purchase_requests" on purchase_requests
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin delete purchase_requests" on purchase_requests
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 -- count_open_requests_for_material()에서 이 컬럼으로 자주 필터링하므로 인덱스를 걸어둡니다.
 create index idx_purchase_requests_material_id on purchase_requests (material_id);
@@ -263,11 +270,11 @@ alter table purchase_history enable row level security;
 create policy "authenticated select purchase_history" on purchase_history
     for select using (auth.role() = 'authenticated');
 create policy "admin insert purchase_history" on purchase_history
-    for insert with check ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for insert with check ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin update purchase_history" on purchase_history
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin delete purchase_history" on purchase_history
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 -- delete_purchase_request()에서 reverted_at을 채울 때 이 컬럼으로 찾으므로 인덱스를 걸어둡니다.
 create index idx_purchase_history_request_id on purchase_history (request_id);
@@ -306,18 +313,18 @@ create policy "authenticated select repairs" on repairs
 create policy "authenticated insert repairs" on repairs
     for insert with check (auth.role() = 'authenticated');
 create policy "admin update repairs" on repairs
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin delete repairs" on repairs
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 create policy "authenticated select repair_returns" on repair_returns
     for select using (auth.role() = 'authenticated');
 create policy "authenticated insert repair_returns" on repair_returns
     for insert with check (auth.role() = 'authenticated');
 create policy "admin update repair_returns" on repair_returns
-    for update using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for update using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 create policy "admin delete repair_returns" on repair_returns
-    for delete using ((auth.jwt() -> 'user_metadata' ->> 'role') = '관리자');
+    for delete using ((auth.jwt() -> 'app_metadata' ->> 'role') = '관리자');
 
 create index idx_repair_returns_repair_id on repair_returns (repair_id);
 

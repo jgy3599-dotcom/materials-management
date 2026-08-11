@@ -64,7 +64,8 @@ def main():
     except Exception as e:
         sys.exit(f"\n로그인에 실패했습니다: {e}")
 
-    role = (auth.user.user_metadata or {}).get("role", "일반")
+    # 권한은 app_metadata에 있습니다(user_metadata는 본인이 고칠 수 있어 쓰지 않습니다).
+    role = (auth.user.app_metadata or {}).get("role", "일반")
     # 이 줄이 없으면 이후 요청에 로그인 정보가 안 실려서 권한 검사가 엉뚱하게 돕니다.
     client.postgrest.auth(auth.session.access_token)
     print(f"\n로그인 성공: {auth.user.email}  (권한: {role})")
