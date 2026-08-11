@@ -6,6 +6,16 @@ import { supabase } from "./supabase.js";
 export const SUPER_ADMIN_EMAIL = "gyjeong@hanjin.com";
 
 
+// 로그인 후 이 시간이 지나면 자동으로 로그아웃시킵니다.
+// Supabase의 "Time-box user sessions"(로그인 후 일정 시간이 지나면 강제 로그아웃)는
+// 유료(Pro) 플랜 기능이라 무료 플랜에서는 켤 수 없습니다. 그래서 서버가 아니라
+// 이 앱 코드에서 직접 흉내냅니다 — 브라우저 안에서 도는 검사라 서버가 강제하는
+// 것만큼 완벽하진 않지만, 실사용에서는 차이가 없습니다.
+// 시간을 조절하고 싶으면 이 숫자만 바꾸면 됩니다.
+const MAX_SESSION_HOURS = 1;
+const LOGIN_TIME_KEY = "login_at";
+
+
 // 지금 로그인된 세션을 돌려줍니다. 로그인 안 했으면 null입니다.
 // 브라우저에 저장돼 있어서 새로고침하거나 창을 닫았다 열어도 유지됩니다.
 export async function getSession() {
@@ -45,12 +55,33 @@ export async function signIn(email, password) {
             : `로그인에 실패했습니다. (${error.message})`;
         throw new Error(message);
     }
+    // 최대 로그인 유지시간을 재는 기준 시각을 남깁니다.
+    localStorage.setItem(LOGIN_TIME_KEY, String(Date.now()));
     return data.session;
 }
 
 
 export async function signOut() {
-    await supabase.auth.signOut();
+    // 네트워크가 끊긴 상태에서는 여기서 오류를 던지지 않고 { error }만 돌려줍니다.
+    // 그때는 실제로 로그아웃되지 않은 것이므로, 기준 시각을 지우면 안 됩니다.
+    // 지워버리면 다음 확인 때 "기준 시각 없음"으로 보여 최대 유지시간 검사가
+    // 그 뒤로 계속 꺼진 채로 남습니다.
+    const { error } = await supabase.auth.signOut();
+    if (!error) localStorage.removeItem(LOGIN_TIME_KEY);
+}
+
+
+// 로그인 후 MAX_SESSION_HOURS가 지났으면 로그아웃시킵니다. main.js가 주기적으로 부릅니다.
+//
+// 기준 시각이 없으면(이 기능이 생기기 전에 이미 로그인해 있던 세션) 아무 것도 하지
+// 않습니다 — 없는 걸 "만료됨"으로 보면 배포 순간 모든 사람이 갑자기 로그아웃됩니다.
+// 다음 로그인부터는 정상적으로 시간이 재집니다.
+export async function enforceMaxSession() {
+    const loginAt = Number(localStorage.getItem(LOGIN_TIME_KEY));
+    if (!loginAt) return;
+    if (Date.now() - loginAt > MAX_SESSION_HOURS * 60 * 60 * 1000) {
+        await signOut();
+    }
 }
 
 

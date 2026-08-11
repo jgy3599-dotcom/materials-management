@@ -1,5 +1,5 @@
 // 화면 전환(로그인 ↔ 앱, 메뉴 간 이동)을 담당합니다.
-import { getSession, getRole, isAdmin, isSuperAdmin, signIn, signOut, onAuthChange } from "./auth.js";
+import { getSession, getRole, isAdmin, isSuperAdmin, signIn, signOut, onAuthChange, enforceMaxSession } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
 import { redrawTable } from "./table.js";
 import * as boqPage from "./pages/boq.js";
@@ -167,6 +167,14 @@ usagePage.init((equipmentId) => {
     document.getElementById("boq-input").value = equipmentId;
     boqPage.search(equipmentId);
 });
+
+// 로그인 후 정해진 시간이 지났으면 로그아웃시킵니다. 페이지를 열자마자 먼저 한 번
+// 끝까지 확인합니다 — 오래 전에 로그인해두고 브라우저를 닫아뒀다 다시 연 경우,
+// 만료 확인이 끝나기 "전에" 아래 로그인 감지가 먼저 붙어버리면 이전 사람의 화면이
+// 잠깐 그려졌다가 로그아웃되는 순간이 생깁니다. 그래서 이 확인을 먼저 완전히
+// 끝내고 나서 로그인 감지를 겁니다. 이후로는 1분마다 계속 확인합니다.
+await enforceMaxSession();
+setInterval(enforceMaxSession, 60 * 1000);
 
 // 로그인/로그아웃이 일어나면 화면을 다시 그립니다. 다른 탭에서 로그아웃해도 여기로 들어옵니다.
 onAuthChange(render);
