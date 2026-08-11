@@ -16,8 +16,10 @@ let selected = null;   // 지금 고른 수리 건
 let loaded = false;
 
 
+// 방금 읽은 행들을 돌려줍니다. 반납 등록처럼 "새로 읽은 뒤 그 안에서 한 건을 찾아야"
+// 하는 자리에서 같은 테이블을 또 받지 않게 하려는 것입니다. 못 읽었으면 null입니다.
 export async function load(force = false) {
-    if (loaded && !force) return;
+    if (loaded && !force) return null;
 
     setStatus("repairs-status", "불러오는 중...");
     try {
@@ -29,11 +31,13 @@ export async function load(force = false) {
         document.getElementById("repairs-count").textContent = `${rows.length}건`;
         setStatus("repairs-status", "");
         loaded = true;
+        return rows;
     } catch (err) {
         setStatus("repairs-status", describeError(err, "수리 현황을 불러오지 못했습니다."), "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
         // 오갔다 돌아와도 낡은 내용을 그대로 둡니다.
         loaded = false;
+        return null;
     }
 }
 
@@ -108,8 +112,8 @@ async function submitReturn(e) {
 
         // 표를 새로 읽고, 방금 고른 건을 다시 선택해 남은 수량을 갱신합니다.
         const repairId = selected.id;
-        await load(true);
-        const updated = (await getRepairs()).find((r) => r.id === repairId);
+        const rows = await load(true);
+        const updated = rows?.find((r) => r.id === repairId);
         if (updated) await selectRepair(updated);
     } catch (err) {
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.

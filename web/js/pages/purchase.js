@@ -412,10 +412,23 @@ export function init() {
 }
 
 
+let lastUserKey = null;
+
 // 로그인한 사람의 권한에 따라 화면을 조정합니다.
 export function setUser(session, admin) {
     isAdmin = admin;
     currentEmail = session?.user?.email ?? "";
+
+    // ⚠️ 사람이 바뀌면 "이미 읽었다"는 표시를 지워 표를 다시 그리게 합니다. 안 지우면
+    // load()가 그냥 빠져나가서, 관리자가 로그아웃하고 공용 계정으로 로그인한 뒤에도
+    // 표가 관리자 때 그려진 상태(행 클릭으로 처리 팝업이 열리는 상태)로 남습니다.
+    // 그러면 일반 사용자가 승인·반려·삭제를 눌러 날것의 DB 권한 오류를 보게 됩니다.
+    const key = `${currentEmail}|${admin}`;
+    if (key !== lastUserKey) {
+        lastUserKey = key;
+        loaded = false;
+    }
+
     document.getElementById("pr-requester").value = currentEmail;
     document.getElementById("pr-admin-hint").classList.toggle("hidden", isAdmin);
 }

@@ -7,6 +7,7 @@ const HISTORY_COLUMNS = ["일자", "부품명(규격)", "수량", "자재 출처
 
 let currentHistory = [];   // 지금 화면에 떠 있는 이력 (정렬·엑셀에 씀)
 let currentSearch = "";    // 엑셀 파일명에 쓸 검색어
+let searchSeq = 0;         // 검색마다 매기는 번호 (늦게 온 이전 결과를 버리는 데 씀)
 let sortOrder = "desc";
 
 
@@ -176,6 +177,12 @@ export async function search(rawInput) {
     const term = (rawInput ?? "").trim();
     if (!term) return;
 
+    // ⚠️ 검색을 연달아 하면(엔터 두 번, 또는 사용이력 표의 바로가기 뒤에 손으로 검색)
+    // 응답이 보낸 순서와 다르게 도착할 수 있습니다. 그러면 늦게 온 앞 검색 결과가 지금
+    // 화면을 덮어쓰는데, currentSearch는 이미 새 검색어라 엑셀 파일명은 B인데 내용은
+    // A인 파일이 받아집니다. 번호를 매겨 마지막 검색이 아니면 조용히 버립니다.
+    const seq = ++searchSeq;
+
     currentSearch = term;
     setStatus("찾는 중...");
     document.getElementById("boq-result").classList.add("hidden");
@@ -185,18 +192,24 @@ export async function search(rawInput) {
         // 스펙이 없어도(BOQ에 애초에 없는 설비) 교체이력은 있을 수 있으므로,
         // 스펙 검색과 이력 검색을 서로 상관없이 각각 진행합니다.
         const boq = await findBoq(term);
+        if (seq !== searchSeq) return;
 
         // 스펙을 찾았으면 이력 검색에는 "검색어"가 아니라 "BOQ에서 찾은 컨베이어 ID"를 씁니다.
         // PLC 그룹 포함 형태로 검색했더라도 이력은 PLC 없는 원래 ID로 남아 있기 때문입니다.
         const equipmentId = boq ? boq.conveyor_id : term;
 
-        currentHistory = await getEquipmentHistory(equipmentId);
+        // 검사를 통과한 뒤에 담습니다. 먼저 담으면 버릴 결과가 이미 화면 데이터를 덮어씁니다.
+        const history = await getEquipmentHistory(equipmentId);
+        if (seq !== searchSeq) return;
+        currentHistory = history;
 
         renderSpec(boq, term);
         renderHistory();
         setStatus("");
         document.getElementById("boq-result").classList.remove("hidden");
     } catch (err) {
+        // 버려진 검색의 오류로 새 검색의 "찾는 중..."을 덮지 않습니다.
+        if (seq !== searchSeq) return;
         setStatus(`조회에 실패했습니다. (${err.message ?? err})`, true);
     }
 }

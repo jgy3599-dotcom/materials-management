@@ -65,6 +65,12 @@ function goToPage(name) {
 
     PAGES[name].load?.();
     if (PAGES[name].tableId) redrawTable(PAGES[name].tableId);
+
+    // 맨 위 요약도 같이 다시 셉니다. 로그인할 때 한 번만 세면, 출고로 재고가 표준재고
+    // 아래로 떨어져도 "표준재고 부족" 카드가 하루 종일 안 나타납니다. 문제가 생겼을 때
+    // 눈에 띄게 하려고 만든 카드인데 정작 그때 안 뜨는 셈입니다.
+    // 숫자만 세어 오는 가벼운 호출이라 메뉴를 옮길 때마다 불러도 부담이 없습니다.
+    loadSummary();
 }
 
 
@@ -101,8 +107,7 @@ function render(session) {
         purchasePage.setUser(session, isAdmin(session));
         registerPage.setUser(session, isAdmin(session));
         show(appView);
-        loadSummary();
-        goToPage(currentPage);
+        goToPage(currentPage);   // 요약은 goToPage가 함께 갱신합니다
     } else {
         // 팝업은 화면 맨 위층에 뜨기 때문에 로그인 화면으로 돌아가도 그대로 남습니다.
         // 다른 탭에서 로그아웃했거나 로그인이 만료됐을 때, 로그인 화면 위에 자재 내용이

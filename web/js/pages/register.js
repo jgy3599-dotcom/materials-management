@@ -1,10 +1,10 @@
 // 자재 등록 화면입니다.
-import { getMaterials, insertMaterial, insertAuditLog } from "../db.js";
+import { getCategories, insertMaterial, insertAuditLog } from "../db.js";
 import { setStatus, describeError, esc } from "../ui.js";
 
 const NEW_CATEGORY = "➕ 새 카테고리 직접 입력";
 
-let materials = [];
+let categories = [];
 let loaded = false;
 let admin = false;
 let userEmail = "";
@@ -13,7 +13,6 @@ let userEmail = "";
 // 기존 카테고리를 선택지로 만듭니다.
 // "직접 입력"은 관리자에게만 보여줍니다. 오타로 새 카테고리가 잘못 생기는 걸 막기 위해서입니다.
 function fillCategoryOptions() {
-    const categories = [...new Set(materials.map((m) => m["카테고리"]).filter(Boolean))].sort();
     const options = admin ? [...categories, NEW_CATEGORY] : categories;
     document.getElementById("reg-category").innerHTML =
         options.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
@@ -31,7 +30,7 @@ export async function load(force = false) {
     if (loaded && !force) return;
     setStatus("reg-status", "불러오는 중...");
     try {
-        materials = await getMaterials();
+        categories = await getCategories();
         fillCategoryOptions();
         setStatus("reg-status", "");
         loaded = true;

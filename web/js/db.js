@@ -112,6 +112,17 @@ export async function getMaterials() {
 }
 
 
+// 카테고리 이름만 중복 없이 가져옵니다. 자재 등록 화면은 선택지를 만드는 데에만 쓰는데
+// getMaterials()를 부르면 4,000행을 컬럼 전부와 함께 받게 됩니다. 여기서는 한 컬럼만
+// 받으므로 주고받는 양이 훨씬 적습니다.
+export async function getCategories() {
+    const rows = await fetchAllRows((opts) =>
+        supabase.from("materials").select("category", opts).order("category"));
+    // 정렬은 JS로 한 번 더 합니다. DB 정렬 규칙에 기대지 않고 예전과 같은 순서를 유지합니다.
+    return [...new Set(rows.map((r) => r.category).filter(Boolean))].sort();
+}
+
+
 // 자재를 새로 등록하고, 만들어진 id를 돌려줍니다.
 export async function insertMaterial(data) {
     const { data: rows, error } = await supabase.from("materials").insert(data).select("id");
