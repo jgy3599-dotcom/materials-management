@@ -59,7 +59,13 @@ create policy "admin delete history" on history
 -- (입출고 등록 시 일반 사용자도 current_qty는 바꿔야 하므로, RLS 정책만으로는 이 구분을 표현할 수 없어 트리거로 처리합니다.)
 create or replace function restrict_material_update() returns trigger as $$
 begin
-    if (auth.jwt() -> 'user_metadata' ->> 'role') <> '관리자' then
+    -- ⚠️ coalesce를 빼지 마세요. 권한이 안 적힌 계정은 이 값이 NULL인데, SQL에서
+    -- NULL <> '관리자' 의 결과는 거짓이 아니라 NULL이고 IF는 NULL이면 블록을 통째로
+    -- 건너뜁니다. 즉 예외가 안 나고 그냥 통과해서, 방어가 있으나 마나가 됩니다.
+    -- materials의 UPDATE 정책은 "로그인했으면 허용"이라 이 트리거가 유일한 방어선입니다.
+    -- (RLS 정책들은 = '관리자' 형태라 NULL이면 거짓=차단으로 안전하게 닫힙니다.
+    --  부등호를 쓰는 여기만 반대로 열립니다.)
+    if coalesce(auth.jwt() -> 'user_metadata' ->> 'role', '') <> '관리자' then
         if NEW.category is distinct from OLD.category
             or NEW.part_name is distinct from OLD.part_name
             or NEW.install_location is distinct from OLD.install_location
@@ -407,6 +413,7 @@ language plpgsql
 as $$
 declare
     v_row purchase_requests;
+    v_deleted integer;
 begin
     select * into v_row from purchase_requests where id = p_request_id;
     if not found then
@@ -421,6 +428,21 @@ begin
     end if;
 
     delete from purchase_requests where id = p_request_id;
+
+    -- ⚠️ 이 검사를 빼지 마세요. 이 함수는 이 함수를 부른 사람의 권한으로 실행되는데,
+    -- UPDATE와 DELETE는 권한 정책에 막히면 오류가 아니라 "0건 처리"로 조용히 넘어갑니다.
+    -- 반면 위의 재고 차감은 일반 권한도 통과합니다(현재재고 변경은 허용되므로).
+    -- 그래서 검사가 없으면 관리자가 아닌 사람이 이 함수를 직접 불렀을 때
+    -- "재고만 깎이고 요청은 그대로 남은 채 성공"이 되고, 반복해서 부르면 재고를
+    -- 끝없이 깎을 수 있습니다. 이 RPC는 로그인한 사람 전체에게 열려 있습니다.
+    --
+    -- 여기서 예외를 던지면 함수 전체가 취소되어 위에서 깎은 재고도 원래대로 돌아갑니다.
+    -- 권한 조건을 여기 다시 적지 않고 "삭제가 됐는지"로 판단하는 이유는, 나중에 권한
+    -- 정책을 바꿔도 이 함수가 저절로 따라가게 하기 위해서입니다.
+    get diagnostics v_deleted = row_count;
+    if v_deleted = 0 then
+        raise exception '구매요청을 삭제할 권한이 없습니다. 관리자에게 요청해주세요.';
+    end if;
 end;
 $$;
 
