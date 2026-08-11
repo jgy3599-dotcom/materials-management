@@ -342,6 +342,14 @@ create or replace function register_usage(
 language plpgsql
 as $$
 begin
+    -- ⚠️ 화면은 min="1" required로 막지만, 이 RPC는 로그인한 사람 전체에게 열려 있어
+    -- 직접 호출할 수 있습니다. 음수를 넣으면 아래 차감이 "현재재고 - (-5)"가 되어
+    -- 오히려 재고가 늘고, quantity가 음수인 수리 건까지 만들어져 그 건은 이후 반납
+    -- 등록이 영구히 불가능해집니다(add_repair_return의 초과 반납 검사에 늘 걸림).
+    if p_quantity <= 0 then
+        raise exception '수량은 1개 이상이어야 합니다.';
+    end if;
+
     insert into history (occurred_on, direction, material_id, quantity, manager, note,
                          equipment_id, problem, action_taken, part_memo)
     values (p_occurred_on, '출고', p_material_id, p_quantity, p_manager, p_note,
@@ -389,8 +397,17 @@ begin
         raise exception '구매요청을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다. (id=%)', p_request_id;
     end if;
 
+    -- 흔한 실수(두 번 누르기)는 따로 안내합니다.
     if v_status = '입고완료' then
         raise exception '이미 입고 처리된 요청입니다. 재고에는 이미 반영되어 있으니 목록을 새로고침해 확인해주세요.';
+    end if;
+
+    -- ⚠️ "막을 상태"를 나열하지 말고 "허용할 상태"만 통과시킵니다. 입고완료만 막으면
+    -- 반려됨·요청됨 상태에서도 재고가 늘어납니다. 실제로 벌어지는 경로: 관리자 A가
+    -- 구매중 행의 팝업을 열어둔 사이 관리자 B가 반려하면, A의 화면은 읽어둔 목록
+    -- 기준이라 입고 버튼이 그대로 보이고 누르면 반려된 건의 재고가 들어갑니다.
+    if v_status <> '구매중' then
+        raise exception '입고 처리는 구매중인 요청만 할 수 있습니다. 지금 상태는 %입니다. 목록을 새로고침해주세요.', v_status;
     end if;
 
     update materials set current_qty = current_qty + p_received_qty where id = p_material_id;
@@ -415,6 +432,13 @@ declare
     v_row purchase_requests;
     v_deleted integer;
 begin
+    -- ⚠️ receive_purchase_request와 반드시 같은 열쇠(4002)를 써야 합니다. 열쇠가 다르면
+    -- 서로를 못 보고 같이 지나갑니다. 그러면 관리자 A가 삭제, B가 입고를 거의 동시에
+    -- 눌렀을 때: A가 '구매중' 상태로 읽음 → B의 입고가 끝나 재고가 늘고 이력이 남음 →
+    -- A가 요청을 지움. 재고는 늘어난 채로 남는데 요청은 사라지고, 구매이력에는 취소
+    -- 표시도 안 찍혀서 나중에 왜 늘었는지 추적할 수 없게 됩니다.
+    perform pg_advisory_xact_lock(4002, p_request_id::int);
+
     select * into v_row from purchase_requests where id = p_request_id;
     if not found then
         return;
