@@ -49,6 +49,11 @@ For multi-step tasks, state a brief plan:
 ## Development Commands
 - **배포:** `git add web/ ...` → `git commit` → `git push` (Cloudflare Pages가 자동 재배포)
 - **배포 확인:** `python verify_web.py --show` (배포된 사이트를 브라우저로 조종해서 검사)
+- **DB 확인:** `python verify_stage3.py` (SQL 함수·RLS 정책·권한 트리거를 건드렸으면 반드시)
+  관리자 계정 + 일반 계정으로 로그인합니다. 일반 계정을 건너뛰면 **권한 트리거 검사가 빠집니다.**
+- **권한 부여:** `python manage_users.py` (계정은 Supabase 대시보드에서 먼저 만들 것)
+
+파이썬 스크립트는 이 셋뿐입니다. 새로 만들기 전에 기존 것에 합칠 수 없는지 먼저 볼 것.
 
 ## 참고 문서
 - `자재이관_주의사항.md` — 원본 엑셀(`부품관리.xlsx`)을 DB에 다시 넣을 때 볼 것

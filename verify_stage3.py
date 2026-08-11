@@ -1,6 +1,19 @@
 """
-3단계 수정(재고 변경과 기록 남기기를 SQL 함수로 묶은 것 + 초과 반납 검증)이
-실제 DB에서 제대로 도는지 자동으로 확인하는 스크립트입니다.
+DB 쪽 업무 규칙(SQL 함수 4개 + 권한 트리거)이 실제로 제대로 도는지 확인합니다.
+**SQL 함수나 RLS 정책, 권한 트리거를 건드렸으면 이걸 돌리세요.**
+
+무엇을 보나
+  [1][2]   출고 등록 - 한진 자재만 재고 차감, 수리 건 자동 생성
+  [2-1]    출고 수량 음수 거부
+  [3]      구매요청 입고 - 재고 증가 + 구매이력 + 상태 변경이 한 묶음
+  [3-1~4]  입고 방어 - 수량 0 / 자재 불일치 / 두 번 입고 / 반려된 요청
+  [4]      구매요청 삭제 - 재고 원복 + 구매이력은 취소표시만
+  [5][6]   수리 반납 - 정상복귀만 재고 복구, 폐기는 안 함
+  [7][8]   반납 방어 - 초과 반납 / 잘못된 결과값
+  [9]      자재 수정 권한 - 일반 권한은 현재재고만 바꿀 수 있는가
+
+  ⚠️ [9]의 일반 권한 검사가 특히 중요합니다. 나머지 검사는 전부 current_qty만
+  바꾸는데 그 필드는 일반 권한도 허용이라, 권한 트리거가 통째로 사라져도 다 통과합니다.
 
 안전장치
   - 테스트 전용 자재를 새로 하나 만들어서 그것으로만 시험합니다. 실제 자재는 건드리지 않습니다.
@@ -9,6 +22,7 @@
 
 준비물
   - 관리자 계정. 구매요청 처리와 뒷정리에 관리자 권한이 필요합니다.
+  - 일반 계정(공용). 없으면 건너뛸 수 있지만 [9-3][9-4]는 검사되지 않습니다.
   - .streamlit/secrets.toml (앱이 쓰는 것과 같은 파일을 그대로 읽습니다)
 
 실행:  python verify_stage3.py
@@ -101,6 +115,32 @@ def main():
     print(f"\n로그인 성공: {auth.user.email} (권한: {role})")
     if role != "관리자":
         sys.exit("관리자 계정이 필요합니다. 구매요청 처리와 뒷정리를 할 수 없습니다.")
+
+    # ---- 일반 계정 (선택) ----
+    # [9]에서 "일반 권한이 막히는가"를 보려면 실제 일반 계정이 필요합니다.
+    # ⚠️ 관리자로만 확인하면, 권한 트리거를 통째로 지워도 전부 통과가 뜹니다.
+    # 관리자는 어차피 제한 대상이 아니기 때문입니다.
+    print("\n[선택] 일반 계정(공용 계정)으로도 로그인하면 권한 트리거까지 검사합니다.")
+    print("  ★ 건너뛰면 '일반 권한이 막히는가'를 확인할 수 없어 실패로 기록됩니다.")
+    print("  건너뛰려면 이메일 칸에서 그냥 엔터를 치세요.")
+    normal = None
+    normal_email = input("  일반 계정 이메일: ").strip()
+    if normal_email:
+        normal_password = getpass.getpass("  일반 계정 비밀번호 (화면에 안 보입니다): ")
+        try:
+            n_auth = normal_client_auth = create_client(
+                secrets["supabase"]["url"], secrets["supabase"]["key"])
+            n = n_auth.auth.sign_in_with_password(
+                {"email": normal_email, "password": normal_password})
+            n_role = (n.user.app_metadata or {}).get("role", "일반")
+            normal_client_auth.postgrest.auth(n.session.access_token)
+            print(f"  로그인 성공: {n.user.email} (권한: {n_role})")
+            if n_role == "관리자":
+                print("  ⚠️ 이 계정도 관리자입니다. 일반 계정이 아니면 [9-3]을 검사할 수 없습니다.")
+            else:
+                normal = normal_client_auth
+        except Exception as e:
+            print(f"  일반 계정 로그인에 실패했습니다: {e}")
 
     def qty():
         """테스트 자재의 현재재고를 DB에서 다시 읽어옵니다."""
@@ -310,6 +350,47 @@ def main():
                 }).execute(),
                 "반납 결과는 정상복귀 또는 폐기")
             check("반납 기록이 여전히 2건이다", 2, count("repair_returns", "repair_id", repair_id))
+
+        # ---------- 9 ----------
+        # materials 수정 권한 트리거(restrict_material_update)입니다. 일반 권한은
+        # 현재재고만 바꿀 수 있고 나머지 칸은 못 건드려야 합니다.
+        #
+        # ⚠️ 위 검사들은 전부 current_qty만 바꾸는데, 그 필드는 일반 권한도 허용이라
+        # 트리거가 권한을 잘못 읽어도(또는 트리거가 아예 없어도) 똑같이 통과합니다.
+        # 그래서 관리자 전용 필드를 실제로 고쳐봐야 확인됩니다.
+        print("\n[9] 자재 수정 권한 트리거")
+
+        print("  [9-1] 관리자가 비고 고치기 (되어야 함)")
+        client.table("materials").update({"note": "고친값"}).eq("id", mid).execute()
+        row = one_row(client.table("materials").select("note").eq("id", mid).execute(), "자재")
+        if row:
+            check("관리자는 비고를 고칠 수 있다", "고친값", row["note"])
+
+        print("  [9-2] 관리자가 표준재고 고치기 (되어야 함)")
+        client.table("materials").update({"standard_qty": 77}).eq("id", mid).execute()
+        row = one_row(client.table("materials").select("standard_qty").eq("id", mid).execute(), "자재")
+        if row:
+            check("관리자는 표준재고를 고칠 수 있다", 77, row["standard_qty"])
+
+        if normal is None:
+            print("  [9-3][9-4] 일반 계정을 안 받아서 건너뜁니다")
+            check_true("일반 권한 차단을 확인했다", False,
+                       "일반 계정 없이 돌려서 확인하지 못했습니다 (이게 핵심 검사입니다)")
+        else:
+            print("  [9-3] 일반 권한이 비고를 고치려 하면 막히는가 (★ 핵심)")
+            expect_rejected(
+                "트리거가 일반 권한의 비고 수정을 막았다",
+                lambda: normal.table("materials").update({"note": "일반이_고침"})
+                              .eq("id", mid).execute(),
+                "일반 권한은 현재재고만 수정할 수 있습니다")
+            row = one_row(client.table("materials").select("note").eq("id", mid).execute(), "자재")
+            if row:
+                check("비고가 안 바뀌었다", "고친값", row["note"])
+
+            print("  [9-4] 일반 권한도 현재재고는 바꿀 수 있는가 (출고 경로)")
+            before = qty()
+            normal.rpc("adjust_material_qty", {"p_material_id": mid, "p_delta": 5}).execute()
+            check("일반 권한이 현재재고를 5 늘렸다", before + 5, qty())
 
     except Exception as e:
         # ⚠️ 이 except를 빼지 마세요. 없으면 오류가 그대로 밖으로 나가서, 뒷정리는
