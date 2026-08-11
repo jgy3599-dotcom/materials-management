@@ -175,20 +175,29 @@ function openDialog(requestId) {
 
 
 // 팝업 안에서 무언가를 처리하고, 성공하면 목록을 새로 읽어옵니다.
-async function runAction(action, failMessage) {
+async function runAction(action, okMessage, failMessage) {
     setBusy(true);
     // 팝업이 통째로 잠기므로 왜 안 눌리는지 알려줍니다. 응답이 느릴 때 아무 문구도
     // 없으면 닫을 수 없는 팝업으로 보입니다.
     setStatus("pr-dialog-status", "처리 중...");
     try {
         await action();
-        setBusy(false);
-        document.getElementById("pr-dialog").close();
-        await load(true);
     } catch (err) {
         setBusy(false);
         setStatus("pr-dialog-status", describeError(err, failMessage), "error");
+        return;
     }
+
+    setBusy(false);
+    document.getElementById("pr-dialog").close();
+    const reloadError = await load(true);
+
+    // ⚠️ 성공했으면 반드시 성공했다고 말해야 합니다. 목록 새로고침이 실패하면 화면에는
+    // 빨간 오류만 남고 행도 예전 상태 그대로여서, 관리자가 "안 됐구나" 하고 같은 처리를
+    // 다시 누릅니다. 입고 처리는 두 번 하면 재고가 두 배로 들어갑니다.
+    setStatus("pr-status",
+        reloadError ? `${okMessage}\n\n다만: ${reloadError}` : okMessage,
+        reloadError ? "error" : "ok");
 }
 
 
@@ -339,12 +348,20 @@ export function init() {
     });
 
     document.getElementById("pr-review-btn").addEventListener("click", () =>
-        runAction(() => startReview(openRequest.id), "검토 시작 처리에 실패했습니다."));
+        runAction(() => startReview(openRequest.id),
+            "검토를 시작했습니다.", "검토 시작 처리에 실패했습니다."));
 
-    document.getElementById("pr-approve-btn").addEventListener("click", () =>
-        runAction(
-            () => approveRequest(openRequest.id, Number(document.getElementById("pr-approve-qty").value)),
-            "승인 처리에 실패했습니다."));
+    document.getElementById("pr-approve-btn").addEventListener("click", () => {
+        // 이 칸들은 <form> 밖이라 HTML의 min="1"이 전혀 작동하지 않습니다. 칸을 비우면
+        // Number("")가 0이 되어 요청수량이 0으로 덮어써지므로 여기서 직접 검사합니다.
+        const qty = Number(document.getElementById("pr-approve-qty").value);
+        if (!Number.isInteger(qty) || qty < 1) {
+            setStatus("pr-dialog-status", "승인 수량은 1개 이상의 숫자로 입력해주세요.", "error");
+            return;
+        }
+        runAction(() => approveRequest(openRequest.id, qty),
+            "요청을 승인했습니다.", "승인 처리에 실패했습니다.");
+    });
 
     document.getElementById("pr-reject-btn").addEventListener("click", () => {
         const reason = document.getElementById("pr-reject-reason").value.trim();
@@ -352,7 +369,8 @@ export function init() {
             setStatus("pr-dialog-status", "반려 사유를 입력해주세요.", "error");
             return;
         }
-        runAction(() => rejectRequest(openRequest.id, reason), "반려 처리에 실패했습니다.");
+        runAction(() => rejectRequest(openRequest.id, reason),
+            "요청을 반려했습니다.", "반려 처리에 실패했습니다.");
     });
 
     document.getElementById("pr-purchase-btn").addEventListener("click", () => {
@@ -363,16 +381,24 @@ export function init() {
         }
         runAction(
             () => markPurchasing(openRequest.id, vendor, Number(document.getElementById("pr-price").value)),
-            "구매 처리에 실패했습니다.");
+            "구매 처리했습니다(발주 완료).", "구매 처리에 실패했습니다.");
     });
 
-    document.getElementById("pr-receive-btn").addEventListener("click", () =>
+    document.getElementById("pr-receive-btn").addEventListener("click", () => {
+        // 비워두면 0이 넘어가서, 상태만 '입고완료'가 되고 재고는 그대로인 요청이 남습니다.
+        // 그런 건 나중에 삭제해도 되돌릴 게 없습니다(DB가 received_qty > 0일 때만 원복).
+        const qty = Number(document.getElementById("pr-receive-qty").value);
+        if (!Number.isInteger(qty) || qty < 1) {
+            setStatus("pr-dialog-status", "입고 수량은 1개 이상의 숫자로 입력해주세요.", "error");
+            return;
+        }
         runAction(
             () => receiveRequest(
-                openRequest.id, openRequest.material_id,
-                Number(document.getElementById("pr-receive-qty").value),
+                openRequest.id, openRequest.material_id, qty,
                 openRequest["거래업체"], openRequest["단가"]),
-            "입고 처리에 실패했습니다."));
+            "입고 처리했습니다. 재고에 반영되었으니 다시 누르지 마세요.",
+            "입고 처리에 실패했습니다.");
+    });
 
     document.getElementById("pr-delete-confirm").addEventListener("change", (e) => {
         // 처리 중에는 손대지 않습니다. 여기서 풀어주면 setBusy가 잠가둔 삭제 버튼이

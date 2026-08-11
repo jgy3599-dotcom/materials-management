@@ -353,6 +353,12 @@ $$;
 -- (2) 입고 처리: 재고 증가 + 구매이력 기록 + 요청 상태를 '입고완료'로.
 --     입고일(p_received_on)은 앱이 쓰던 값을 그대로 받습니다(서버 시간대 차이로 날짜가
 --     하루 어긋나는 일이 없도록 DB의 current_date를 쓰지 않습니다).
+--     ⚠️ 같은 요청을 두 번 입고하면 재고가 두 배로 들어가고 구매이력도 두 건 생깁니다.
+--     화면 새로고침이 실패해 행이 '구매중'으로 남아 관리자가 다시 누르거나, 관리자 두 명이
+--     목록을 열어둔 채 동시에 누르면 실제로 벌어집니다. 그래서 DB가 직접 막습니다.
+--     pg_advisory_xact_lock으로 같은 요청에 대한 동시 호출을 줄 세운 뒤 상태를 확인합니다.
+--     (purchase_requests 행을 select ... for update로 잠그지 않는 이유는 add_repair_return과
+--     같습니다 — 테이블을 건드리지 않는 advisory lock이 RLS 정책에 걸리지 않아 안전합니다.)
 create or replace function receive_purchase_request(
     p_request_id bigint,
     p_material_id bigint,
@@ -363,7 +369,24 @@ create or replace function receive_purchase_request(
 ) returns void
 language plpgsql
 as $$
+declare
+    v_status text;
 begin
+    perform pg_advisory_xact_lock(4002, p_request_id::int);
+
+    if p_received_qty <= 0 then
+        raise exception '입고 수량은 1개 이상이어야 합니다.';
+    end if;
+
+    select status into v_status from purchase_requests where id = p_request_id;
+    if not found then
+        raise exception '구매요청을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다. (id=%)', p_request_id;
+    end if;
+
+    if v_status = '입고완료' then
+        raise exception '이미 입고 처리된 요청입니다. 재고에는 이미 반영되어 있으니 목록을 새로고침해 확인해주세요.';
+    end if;
+
     update materials set current_qty = current_qty + p_received_qty where id = p_material_id;
 
     insert into purchase_history (material_id, quantity, vendor, unit_price, received_on, request_id)

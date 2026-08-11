@@ -429,6 +429,8 @@
         <!-- 검토중: 승인(수량 수정 가능) 또는 반려(사유 필수) -->
         <div id="pr-step-검토중" class="hidden">
             <label for="pr-approve-qty">승인할 수량 (필요하면 수정)</label>
+            <!-- 이 팝업 안에는 <form>이 없어 min은 스피너 범위일 뿐 강제되지 않습니다.
+                 실제 검사는 purchase.js의 버튼 핸들러가 합니다. -->
             <input type="number" id="pr-approve-qty" min="1" step="1">
             <button id="pr-approve-btn" style="width:100%; margin-top:10px">✅ 승인</button>
 
@@ -449,6 +451,8 @@
         <!-- 구매중: 입고 수량을 넣고 재고 반영 -->
         <div id="pr-step-구매중" class="hidden">
             <label for="pr-receive-qty">입고 수량</label>
+            <!-- min은 강제되지 않습니다(위 승인 수량 주석 참고). 검사는 purchase.js와
+                 receive_purchase_request 함수가 각각 합니다. -->
             <input type="number" id="pr-receive-qty" min="1" step="1">
             <button id="pr-receive-btn" style="width:100%; margin-top:12px">입고 처리 (재고 반영)</button>
         </div>
@@ -502,7 +506,10 @@
                     <label for="mat-standard">표준재고</label>
                     <input type="number" id="mat-standard" min="0" step="1">
                     <label for="mat-current">현재재고</label>
-                    <input type="number" id="mat-current" min="0" step="1">
+                    <!-- min을 넣지 마세요. 이 시스템은 현재재고가 음수인 상태를 허용합니다
+                         (시스템_규칙과_배경.md 7절). min="0"이 있으면 음수인 자재는
+                         비고 한 글자만 고쳐도 브라우저가 저장을 막아버립니다. -->
+                    <input type="number" id="mat-current" step="1">
                     <label for="mat-warehouse">창고번호</label>
                     <input type="text" id="mat-warehouse">
                 </div>

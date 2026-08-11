@@ -86,16 +86,33 @@ async function submit(e) {
     setStatus("reg-form-status", "");
 
     try {
-        const newId = await insertMaterial(data);
-        await insertAuditLog(userEmail, "insert", newId, partName, null, data);
+        let newId;
+        try {
+            newId = await insertMaterial(data);
+        } catch (err) {
+            setStatus("reg-form-status", describeError(err, "자재 등록에 실패했습니다."), "error");
+            return;
+        }
 
-        setStatus("reg-form-status", `'${partName}' 자재가 등록되었습니다.`, "ok");
+        // 여기서부터 자재는 이미 만들어졌습니다. 감사 로그가 실패했다고 "등록 실패"라고
+        // 하면 사용자가 당연히 다시 누르고, 같은 자재가 두 건 생깁니다. 그래서 성공은
+        // 성공이라고 말하고 못 한 일만 "다만:" 뒤에 붙입니다(materials.js와 같은 방식).
+        const warnings = [];
+        try {
+            await insertAuditLog(userEmail, "insert", newId, partName, null, data);
+        } catch (err) {
+            warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
+        }
+
         document.getElementById("reg-form").reset();
         document.getElementById("reg-manufacturer").value = "-";
         document.getElementById("reg-vendor").value = "-";
         await load(true);   // 새 카테고리가 생겼을 수 있어 목록을 다시 읽습니다
-    } catch (err) {
-        setStatus("reg-form-status", describeError(err, "자재 등록에 실패했습니다."), "error");
+
+        const okMessage = `'${partName}' 자재가 등록되었습니다.`;
+        setStatus("reg-form-status",
+            warnings.length ? `${okMessage}\n\n다만: ${warnings.join("\n다만: ")}` : okMessage,
+            warnings.length ? "warn" : "ok");
     } finally {
         btn.disabled = false;
         btn.textContent = "등록하기";
