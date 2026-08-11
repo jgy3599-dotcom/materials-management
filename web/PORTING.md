@@ -32,7 +32,7 @@ Streamlit 앱에는 "비밀번호를 10번 틀리면 5분 잠김" 기능이 있�
 
 - [x] 정적 호스팅 배포 (Cloudflare Pages) — https://materials-management.pages.dev
 - [x] Supabase 연결 (공개용 키 + RLS)
-- [x] 로그인 / 로그아웃 (세션 유지 — 새로고침·창 닫았다 열어도 유지)
+- [x] 로그인 / 로그아웃 (세션 유지 — 새로고침·창 닫았다 열어도 유지, **로그인 후 1시간까지만** — `시스템_규칙과_배경.md` 참고)
 - [x] 권한(`role`) 읽어서 화면 위쪽에 표시
 - [x] 메뉴 전환 (사이드바)
 - [x] 상단 요약 카드 3개 (`dashboard_summary` RPC 사용)
