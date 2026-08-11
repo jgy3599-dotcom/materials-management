@@ -190,6 +190,10 @@ as $$
     select * from boq
     where upper(regexp_replace(conveyor_id, '\s+', '', 'g')) = upper(regexp_replace(p_search, '\s+', '', 'g'))
        or upper(regexp_replace(conveyor_id_with_plc, '\s+', '', 'g')) = upper(regexp_replace(p_search, '\s+', '', 'g'))
+    -- conveyor_id_with_plc에는 중복을 막는 제약이 없어서 여러 행이 걸릴 수 있습니다.
+    -- 정렬이 없으면 그중 어느 행이 나올지 실행 계획에 따라 달라져, 같은 검색어인데
+    -- 다른 스펙이 보이는 일이 생깁니다. 항상 같은 결과가 나오도록 순서를 고정합니다.
+    order by id
     limit 1;
 $$;
 
@@ -385,6 +389,7 @@ language plpgsql
 as $$
 declare
     v_status text;
+    v_material_id bigint;
 begin
     perform pg_advisory_xact_lock(4002, p_request_id::int);
 
@@ -392,9 +397,18 @@ begin
         raise exception '입고 수량은 1개 이상이어야 합니다.';
     end if;
 
-    select status into v_status from purchase_requests where id = p_request_id;
+    select status, material_id into v_status, v_material_id
+      from purchase_requests where id = p_request_id;
     if not found then
         raise exception '구매요청을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다. (id=%)', p_request_id;
+    end if;
+
+    -- ⚠️ 재고를 올릴 자재는 "요청 행에 적힌 것"을 씁니다. 호출자가 준 p_material_id를
+    -- 그대로 믿으면 안 되는 이유: 삭제(원복)는 remove_purchase_request가 요청 행의
+    -- material_id로 되돌리기 때문에, 둘이 다르면 A 자재는 영구히 늘고 B 자재는 영구히
+    -- 주는 어긋남이 생기고 되돌릴 방법이 없습니다.
+    if p_material_id is distinct from v_material_id then
+        raise exception '요청에 적힌 자재와 다른 자재로 입고하려 했습니다. 목록을 새로고침해주세요.';
     end if;
 
     -- 흔한 실수(두 번 누르기)는 따로 안내합니다.
@@ -410,10 +424,10 @@ begin
         raise exception '입고 처리는 구매중인 요청만 할 수 있습니다. 지금 상태는 %입니다. 목록을 새로고침해주세요.', v_status;
     end if;
 
-    update materials set current_qty = current_qty + p_received_qty where id = p_material_id;
+    update materials set current_qty = current_qty + p_received_qty where id = v_material_id;
 
     insert into purchase_history (material_id, quantity, vendor, unit_price, received_on, request_id)
-    values (p_material_id, p_received_qty, p_vendor, p_unit_price, p_received_on, p_request_id);
+    values (v_material_id, p_received_qty, p_vendor, p_unit_price, p_received_on, p_request_id);
 
     update purchase_requests
        set status = '입고완료', received_at = now(), received_qty = p_received_qty
@@ -497,6 +511,14 @@ begin
 
     if p_returned_qty <= 0 then
         raise exception '반납 수량은 1개 이상이어야 합니다.';
+    end if;
+
+    -- ⚠️ 아래에서 재고 복구는 '정상복귀'일 때만 합니다. 그런데 목록의 반납 합계는
+    -- 결과와 상관없이 returned_qty를 전부 더하므로, 오타 등으로 둘 중 어느 값도 아닌
+    -- 것이 들어오면 "재고는 안 돌아왔는데 화면에는 복귀완료"인 상태가 됩니다.
+    -- 조용히 어긋나느니 아예 받지 않습니다.
+    if p_outcome not in ('정상복귀', '폐기') then
+        raise exception '반납 결과는 정상복귀 또는 폐기만 가능합니다. (받은 값: %)', p_outcome;
     end if;
 
     select material_id, quantity into v_material_id, v_sent_qty
