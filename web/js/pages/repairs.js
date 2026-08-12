@@ -159,6 +159,9 @@ async function submitReturn(e) {
             updated ? message : `${message}\n\n⚠️ 표를 새로 읽지 못해 남은 수량이 갱신되지 않았습니다. 새로고침으로 확인해주세요.`,
             updated ? "ok" : "warn");
     } catch (err) {
+        // 성공 경로(위 147행)와 같은 이유로, 여기 오는 사이 사람이 바뀌었거나 다른 건을
+        // 클릭했으면 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
+        if (selected?.id !== repairId) return;
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.
         setStatus("repair-form-status", describeError(err, "반납 등록에 실패했습니다."), "error");
     } finally {
@@ -184,6 +187,10 @@ export function setUser(session) {
     // 돌고 있는 불러오기를 무효로 만듭니다. 안 그러면 앞사람 때 시작한 것이 뒤늦게 끝나면서
     // 앞사람이 보던 내용을 그리고 "이미 읽었음"으로 표시해, 뒷사람이 열어도 다시 안 읽습니다.
     loadSeq++;
+    // selectRepair()도 돌고 있었을 수 있습니다(앞사람이 행을 누른 직후 로그아웃 등).
+    // 그대로 두면 뒤늦게 도착한 응답이 순번은 그대로라 통과해서, 지금은 비어 있는
+    // 상세창에 앞사람의 반납 이력을 그릴 수 있습니다.
+    selectSeq++;
     selected = null;
     document.getElementById("repair-detail").classList.add("hidden");
     // 앞사람이 보던 표도 비웁니다. 남겨두면 뒤이은 다시 읽기가 실패했을 때, 빨간 오류가
