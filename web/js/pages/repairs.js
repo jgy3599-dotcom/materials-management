@@ -14,6 +14,8 @@ const RETURN_TABLE_ID = "repair-returns-table";
 
 let selected = null;   // 지금 고른 수리 건
 let loaded = false;
+let loadSeq = 0;       // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
+let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 
 
 // 방금 읽은 행들을 돌려줍니다. 반납 등록처럼 "새로 읽은 뒤 그 안에서 한 건을 찾아야"
@@ -21,9 +23,15 @@ let loaded = false;
 export async function load(force = false) {
     if (loaded && !force) return null;
 
+    // 새로고침을 연달아 누르거나 반납 등록 중에 겹쳐 돌면, 먼저 시작한 쪽이 늦게 끝나면서
+    // 낡은 내용으로 덮어씁니다. 순번을 매겨 두고 나보다 나중에 시작한 것이 있으면
+    // 그리지 않고 물러납니다(usage.js와 같은 방식).
+    const seq = ++loadSeq;
+
     setStatus("repairs-status", "불러오는 중...");
     try {
         const rows = await getRepairs();
+        if (seq !== loadSeq) return null;
         renderTable(TABLE_ID, rows, COLUMNS, {
             selectable: true,
             onRowClick: (row) => selectRepair(row),
@@ -33,6 +41,7 @@ export async function load(force = false) {
         loaded = true;
         return rows;
     } catch (err) {
+        if (seq !== loadSeq) return null;
         setStatus("repairs-status", describeError(err, "수리 현황을 불러오지 못했습니다."), "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
         // 오갔다 돌아와도 낡은 내용을 그대로 둡니다.
@@ -122,6 +131,29 @@ async function submitReturn(e) {
         btn.disabled = false;
         btn.textContent = "반납 등록";
     }
+}
+
+
+// 사람이 바뀌면 앞사람이 고른 수리 건과 열려 있던 반납 폼을 버립니다. 로그아웃할 때와
+// 로그인할 때 양쪽에서 불립니다 — main.js의 render() 참고.
+//
+// ⚠️ usage.js의 setUser와 같은 이유입니다. 일반 사용자는 공용 계정 하나를 여럿이 함께 쓰기
+// 때문에 이메일만 비교하면 정작 사람이 바뀌는 경우에 안 비워집니다. 반납 등록은 결과가
+// '정상복귀'면 현재재고를 다시 더하므로, 앞사람이 골라둔 건이 남아 있으면 뒷사람이 누르는
+// 순간 자기가 고르지도 않은 자재의 재고가 늘어납니다.
+export function setUser(session) {
+    const key = session?.user?.email ?? "";
+    if (key && key === lastUserKey) return;
+
+    lastUserKey = key;
+    loaded = false;
+    // 돌고 있는 불러오기를 무효로 만듭니다. 안 그러면 앞사람 때 시작한 것이 뒤늦게 끝나면서
+    // 앞사람이 보던 내용을 그리고 "이미 읽었음"으로 표시해, 뒷사람이 열어도 다시 안 읽습니다.
+    loadSeq++;
+    selected = null;
+    document.getElementById("repair-detail").classList.add("hidden");
+    setStatus("repairs-status", "");
+    setStatus("repair-form-status", "");
 }
 
 
