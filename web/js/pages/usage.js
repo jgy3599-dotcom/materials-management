@@ -1,6 +1,6 @@
 // 사용(출고) 이력 화면입니다. 이력을 표로 보여주고, 아래에서 새 출고를 등록합니다.
 // 입고(구매) 이력은 '구매 요청' 쪽에서 따로 관리합니다.
-import { getUsageHistory, getMaterials, getMaterial, registerUsage } from "../db.js";
+import { getUsageHistory, getMaterialOptions, getMaterial, registerUsage } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, today, esc } from "../ui.js";
 
@@ -141,7 +141,7 @@ export async function load(force = false) {
 
     setStatus("usage-status", "불러오는 중...");
     try {
-        const [history, mats] = await Promise.all([getUsageHistory(), getMaterials()]);
+        const [history, mats] = await Promise.all([getUsageHistory(), getMaterialOptions()]);
         if (seq !== loadSeq) return;
         materials = mats;
 

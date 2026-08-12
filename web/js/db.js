@@ -112,6 +112,25 @@ export async function getMaterials() {
 }
 
 
+// 부품 선택칸을 채우는 데 필요한 컬럼만 가져옵니다.
+//
+// getMaterials()는 컬럼을 전부 받아오는데, 선택칸에 필요한 것은 네 개뿐입니다. 출고 화면은
+// 화면을 열 때와 출고를 등록할 때마다 이걸 다시 읽으므로, 주고받는 양이 그만큼 줄어듭니다.
+// (자재 목록·구매 요청·구매필요 알림 화면은 재고나 거래처 같은 나머지 컬럼도 쓰므로
+//  그쪽은 계속 getMaterials()를 씁니다.)
+export async function getMaterialOptions() {
+    const cols = ["id", "category", "part_name", "warehouse_no"];
+    const rows = await fetchAllRows((opts) =>
+        supabase.from("materials").select(cols.join(","), opts).order("id"));
+
+    return rows.map((row) => {
+        const out = {};
+        for (const col of cols) out[MATERIAL_LABELS[col]] = row[col];
+        return out;
+    });
+}
+
+
 // 카테고리 이름만 중복 없이 가져옵니다. 자재 등록 화면은 선택지를 만드는 데에만 쓰는데
 // getMaterials()를 부르면 4,000행을 컬럼 전부와 함께 받게 됩니다. 여기서는 한 컬럼만
 // 받으므로 주고받는 양이 훨씬 적습니다.
