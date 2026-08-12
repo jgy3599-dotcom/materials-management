@@ -71,8 +71,12 @@ function fillCategoryOptions() {
 
 function fillSourceOptions() {
     const options = [...Object.keys(MATERIAL_SOURCES), CUSTOM_SOURCE];
+    // 부품 칸과 같은 이유로 맨 위에 빈 항목을 둡니다. 목록의 첫 항목이 '보우'인데, 그건
+    // 재고를 깎지 않는 출처입니다. 등록을 마쳐 폼이 비워지면 출처가 말없이 '보우'로
+    // 돌아가므로, 한진 자재를 연달아 등록할 때 두 번째부터 재고가 안 깎일 수 있습니다.
     refill(document.getElementById("usage-source"),
-        options.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`).join(""));
+        [`<option value="">출처를 선택하세요</option>`,
+            ...options.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`)].join(""));
     updateSourceHint();
 }
 
@@ -85,6 +89,12 @@ function updateSourceHint() {
     const hint = document.getElementById("usage-source-hint");
 
     custom.classList.toggle("hidden", source !== CUSTOM_SOURCE);
+
+    // 아직 안 골랐으면(맨 위 빈 항목) 차감 여부를 말할 수 없으므로 문구를 비웁니다.
+    if (!source) {
+        hint.textContent = "";
+        return;
+    }
 
     if (MATERIAL_SOURCES[source]) {
         hint.textContent = `'${source}'는 한진 소유 자재라 현재재고가 차감되고, 수리 관리에도 자동 등록됩니다.`;
@@ -215,6 +225,10 @@ async function submit(e) {
     // "직접 입력"은 MATERIAL_SOURCES에 없는 값이라 항상 차감되지 않습니다.
     const deductStock = MATERIAL_SOURCES[source] ?? false;
 
+    if (!source) {
+        setStatus("usage-form-status", "자재 출처를 선택해주세요.", "error");
+        return;
+    }
     if (source === CUSTOM_SOURCE) {
         if (!custom) {
             setStatus("usage-form-status", "자재 출처 '직접 입력'을 선택했으면 옆 칸에 출처를 입력해주세요.", "error");
