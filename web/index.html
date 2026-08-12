@@ -321,8 +321,11 @@
                                 </div>
                             </div>
                             <button type="submit" id="repair-submit-btn" style="margin-top:16px">반납 등록</button>
-                            <p class="caption hidden" id="repair-form-status"></p>
                         </form>
+
+                        <!-- 안내 문구는 폼 "밖"에 둡니다. 마지막 하나까지 반납해 수리가 끝나면
+                             폼 자체가 숨겨지는데, 안에 있으면 성공 안내까지 같이 사라집니다. -->
+                        <p class="caption hidden" id="repair-form-status"></p>
 
                         <h2>반납 이력</h2>
                         <div id="repair-returns-table"></div>

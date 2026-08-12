@@ -79,6 +79,9 @@ async function selectRepair(row) {
     }
 
     setStatus("repair-form-status", "");
+    // 앞서 보던 건의 반납 이력을 먼저 비웁니다. 위에서 제목과 남은 수량은 바로 바뀌는데
+    // 이력은 받아온 뒤에야 바뀌므로, 그 사이에 다른 건의 이력이 붙어 보입니다.
+    renderTable(RETURN_TABLE_ID, [], RETURN_COLUMNS, { pageSize: 10 });
 
     // 회차별 반납 이력
     //
