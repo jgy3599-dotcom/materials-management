@@ -81,10 +81,16 @@ async function selectRepair(row) {
     setStatus("repair-form-status", "");
 
     // 회차별 반납 이력
+    //
+    // 받아온 뒤에 "아직 이 건을 보고 있는지" 확인합니다. 행을 빠르게 A→B로 눌렀을 때
+    // A의 응답이 늦게 오면, 화면에는 B의 제목·남은 수량이 떠 있는데 이력만 A의 것이
+    // 그려질 수 있기 때문입니다.
     try {
         const returns = await getRepairReturns(row.id);
+        if (selected?.id !== row.id) return;
         renderTable(RETURN_TABLE_ID, returns, RETURN_COLUMNS, { pageSize: 10 });
     } catch (err) {
+        if (selected?.id !== row.id) return;
         setStatus("repair-form-status", describeError(err, "반납 이력을 불러오지 못했습니다."), "error");
     }
 }
@@ -99,6 +105,11 @@ async function submitReturn(e) {
     const outcome = document.getElementById("repair-outcome").value;
     // 자재목록에 없는 부품은 되돌릴 재고 자체가 없어서, 안내 문구를 다르게 보여줍니다.
     const hasMaterial = selected.material_id !== null && selected.material_id !== undefined;
+    // 수리 건 번호도 등록을 보내기 "전에" 잡아둡니다. 등록이 오가는 동안 자동 로그아웃이나
+    // 다른 탭에서의 로그아웃이 걸리면 setUser가 selected를 비우는데, 그때 아래에서 selected를
+    // 읽으면 오류가 나고 "등록 실패"로 보입니다. 실제로는 DB에 반납이 들어가 재고까지
+    // 되돌아간 상태라, 사람이 한 번 더 누르면 반납이 두 번 잡힙니다.
+    const repairId = selected.id;
 
     btn.disabled = true;
     btn.textContent = "등록 중...";
@@ -106,7 +117,7 @@ async function submitReturn(e) {
 
     try {
         await addRepairReturn(
-            selected.id, qty,
+            repairId, qty,
             document.getElementById("repair-date").value,
             outcome,
             document.getElementById("repair-note").value.trim(),
@@ -120,13 +131,20 @@ async function submitReturn(e) {
         } else {
             message = `${qty}개 폐기 처리했습니다. 재고는 복구하지 않았습니다.`;
         }
-        setStatus("repair-form-status", message, "ok");
-
         // 표를 새로 읽고, 방금 고른 건을 다시 선택해 남은 수량을 갱신합니다.
-        const repairId = selected.id;
         const rows = await load(true);
         const updated = rows?.find((r) => r.id === repairId);
         if (updated) await selectRepair(updated);
+
+        // 안내 문구는 다시 선택한 "뒤에" 보여줍니다. selectRepair가 폼을 새로 채우면서
+        // 안내 문구를 지우기 때문입니다.
+        //
+        // 다시 읽지 못했으면(다른 새로고침이 끼어들었거나 조회가 실패했으면) 남은 수량이
+        // 갱신되지 않은 폼이 그대로 남습니다. 그 상태로 또 누르면 같은 반납이 두 번
+        // 들어갈 수 있으므로, 성공은 성공대로 알리되 확인이 필요하다고 덧붙입니다.
+        setStatus("repair-form-status",
+            updated ? message : `${message}\n\n⚠️ 표를 새로 읽지 못해 남은 수량이 갱신되지 않았습니다. 새로고침으로 확인해주세요.`,
+            updated ? "ok" : "warn");
     } catch (err) {
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.
         setStatus("repair-form-status", describeError(err, "반납 등록에 실패했습니다."), "error");
@@ -155,6 +173,11 @@ export function setUser(session) {
     loadSeq++;
     selected = null;
     document.getElementById("repair-detail").classList.add("hidden");
+    // 앞사람이 보던 표도 비웁니다. 남겨두면 뒤이은 다시 읽기가 실패했을 때, 빨간 오류가
+    // 뜬 화면에서 앞사람 시점의 행을 눌러 반납 폼을 열 수 있습니다. 그 폼의 '남은 수량'은
+    // 지금 값이 아니라 그때 값입니다.
+    renderTable(TABLE_ID, [], COLUMNS, { selectable: true });
+    document.getElementById("repairs-count").textContent = "";
     // 폼도 비웁니다. 특히 결과 칸('정상복귀'/'폐기')은 재고를 되돌릴지를 정하는 칸인데,
     // 앞사람이 '폐기'로 바꿔둔 것이 남으면 뒷사람의 반납이 폐기로 기록됩니다.
     document.getElementById("repair-form").reset();
