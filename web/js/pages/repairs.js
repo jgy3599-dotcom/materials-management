@@ -72,6 +72,9 @@ async function selectRepair(row) {
         qtyInput.value = 1;
         document.getElementById("repair-date").value = today();
         document.getElementById("repair-note").value = "";
+        // 결과도 매번 '정상복귀'로 되돌립니다. 이 칸만 안 되돌리면 앞서 고른 건에서 '폐기'로
+        // 바꾼 것이 다음 건에도 그대로 남아, 재고를 되돌려야 할 반납이 폐기로 기록됩니다.
+        document.getElementById("repair-outcome").value = "정상복귀";
         document.getElementById("repair-outstanding").textContent = `남은 수량: ${outstanding}개`;
     }
 
@@ -152,6 +155,9 @@ export function setUser(session) {
     loadSeq++;
     selected = null;
     document.getElementById("repair-detail").classList.add("hidden");
+    // 폼도 비웁니다. 특히 결과 칸('정상복귀'/'폐기')은 재고를 되돌릴지를 정하는 칸인데,
+    // 앞사람이 '폐기'로 바꿔둔 것이 남으면 뒷사람의 반납이 폐기로 기록됩니다.
+    document.getElementById("repair-form").reset();
     setStatus("repairs-status", "");
     setStatus("repair-form-status", "");
 }
