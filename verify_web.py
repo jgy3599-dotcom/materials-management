@@ -147,9 +147,10 @@ def main():
             page.wait_for_selector("#usage-table .tabulator-row", timeout=30000)
             n = count_rows(page, "usage-table")
             check("사용이력 표에 행이 그려진다", n > 0, f"{n}행")
-            check("출고 등록 폼의 부품 선택칸이 채워진다",
-                  page.locator("#usage-part option").count() > 0,
-                  f"{page.locator('#usage-part option').count()}개")
+            # 맨 위의 "부품을 선택하세요"는 값이 빈 항목이라 자재를 하나도 못 불러와도
+            # 늘 하나는 있습니다. 그것까지 세면 이 검사는 무조건 통과합니다.
+            real_parts = page.locator("#usage-part option:not([value=''])").count()
+            check("출고 등록 폼의 부품 선택칸이 채워진다", real_parts > 0, f"{real_parts}개")
 
             print("\n[6] 구매 요청")
             page.click('.nav-btn[data-page="purchase"]')
