@@ -106,6 +106,7 @@ function render(session) {
         materialsPage.setUser(session, isAdmin(session), isSuperAdmin(session));
         purchasePage.setUser(session, isAdmin(session));
         registerPage.setUser(session, isAdmin(session));
+        usagePage.setUser(session);
         show(appView);
         goToPage(currentPage);   // 요약은 goToPage가 함께 갱신합니다
     } else {
@@ -113,6 +114,13 @@ function render(session) {
         // 다른 탭에서 로그아웃했거나 로그인이 만료됐을 때, 로그인 화면 위에 자재 내용이
         // 보이고 삭제 버튼까지 눌리는 상태가 됩니다. 그래서 열린 팝업을 모두 닫습니다.
         for (const dlg of document.querySelectorAll("dialog[open]")) dlg.close();
+        // 출고 폼은 로그아웃 시점에 비웁니다. 일반 사용자는 공용 계정 하나를 함께 쓰기
+        // 때문에, 다음 사람이 같은 계정으로 들어와도 앞사람이 골라둔 부품이 남아 있으면
+        // 안 됩니다(로그인 때만 비우면 이메일이 같아 그냥 지나갑니다).
+        // ⚠️ 자재 등록·구매 요청 폼, 그리고 수리 관리의 반납 등록 폼에도 같은 문제가 남아
+        // 있습니다. 특히 반납 등록은 '정상복귀'일 때 재고를 다시 더하므로 성격이 같습니다
+        // (repairs.js에는 setUser 자체가 없습니다). 이번 범위(출고)와 나눠서 처리할 것.
+        usagePage.setUser(null);
         show(loginView);
     }
 }
