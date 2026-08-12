@@ -283,7 +283,7 @@ async function submit(e) {
         fillPartOptions();
         fillSourceOptions();
 
-        await load(true);   // 표와 재고를 새로 읽어옵니다
+        await load(true);   // 표와 부품 목록을 새로 읽어옵니다 (재고는 아래에서 따로 읽습니다)
 
         // 차감한 뒤 재고가 음수면, 있는 것보다 많이 나갔다는 뜻이라 기록 어딘가가
         // 어긋난 것입니다. 막지는 않지만(실제로 음수인 자재가 있습니다) 그냥 넘어가면

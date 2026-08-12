@@ -119,15 +119,18 @@ export async function getMaterials() {
 // (자재 목록·구매 요청·구매필요 알림 화면은 재고나 거래처 같은 나머지 컬럼도 쓰므로
 //  그쪽은 계속 getMaterials()를 씁니다.)
 export async function getMaterialOptions() {
-    const cols = ["id", "category", "part_name", "warehouse_no"];
     const rows = await fetchAllRows((opts) =>
-        supabase.from("materials").select(cols.join(","), opts).order("id"));
+        supabase.from("materials").select("id, category, part_name, warehouse_no", opts).order("id"));
 
-    return rows.map((row) => {
-        const out = {};
-        for (const col of cols) out[MATERIAL_LABELS[col]] = row[col];
-        return out;
-    });
+    // 이름을 MATERIAL_LABELS로 돌려 붙이지 않고 하나씩 적습니다. 그 표는 "화면에 보여줄
+    // 한글 이름"이라 id만 예외로 자기 자신을 가리키는데, 나중에 누가 그 줄을 군더더기로
+    // 보고 지우면 여기서 id가 조용히 사라집니다(등록할 때 자재 번호가 NaN이 됩니다).
+    return rows.map((row) => ({
+        id: row.id,
+        "카테고리": row.category,
+        "부품명(규격)": row.part_name,
+        "창고번호": row.warehouse_no,
+    }));
 }
 
 
