@@ -15,6 +15,7 @@ const RETURN_TABLE_ID = "repair-returns-table";
 let selected = null;   // 지금 고른 수리 건
 let loaded = false;
 let loadSeq = 0;       // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
+let selectSeq = 0;     // 행 선택 순번 (같은 행을 두 번 눌러도 나중 클릭만 그리려고)
 let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 
 
@@ -54,6 +55,9 @@ export async function load(force = false) {
 // 표에서 수리 건 하나를 고르면 반납 등록 칸과 반납 이력을 보여줍니다.
 async function selectRepair(row) {
     selected = row;
+    // 같은 행을 연달아 두 번 누르면 selected.id 비교만으로는 어느 응답이 최신인지
+    // 못 가립니다(둘 다 id가 같으므로). 호출마다 순번을 매겨 나중에 시작한 것만 그립니다.
+    const seq = ++selectSeq;
     const outstanding = Number(row["보낸수량"]) - Number(row["반납수량"]);
 
     document.getElementById("repair-detail").classList.remove("hidden");
@@ -85,15 +89,15 @@ async function selectRepair(row) {
 
     // 회차별 반납 이력
     //
-    // 받아온 뒤에 "아직 이 건을 보고 있는지" 확인합니다. 행을 빠르게 A→B로 눌렀을 때
-    // A의 응답이 늦게 오면, 화면에는 B의 제목·남은 수량이 떠 있는데 이력만 A의 것이
-    // 그려질 수 있기 때문입니다.
+    // 받아온 뒤에 "아직 이 호출이 최신인지" 순번으로 확인합니다. 행을 빠르게 A→B로
+    // 눌렀을 때 A의 응답이 늦게 오면, 화면에는 B의 제목·남은 수량이 떠 있는데 이력만
+    // A의 것이 그려질 수 있기 때문입니다.
     try {
         const returns = await getRepairReturns(row.id);
-        if (selected?.id !== row.id) return;
+        if (seq !== selectSeq) return;
         renderTable(RETURN_TABLE_ID, returns, RETURN_COLUMNS, { pageSize: 10 });
     } catch (err) {
-        if (selected?.id !== row.id) return;
+        if (seq !== selectSeq) return;
         setStatus("repair-form-status", describeError(err, "반납 이력을 불러오지 못했습니다."), "error");
     }
 }
@@ -136,6 +140,12 @@ async function submitReturn(e) {
         }
         // 표를 새로 읽고, 방금 고른 건을 다시 선택해 남은 수량을 갱신합니다.
         const rows = await load(true);
+
+        // 여기까지 오는 사이 사람이 바뀌었거나(공용 계정 로그아웃/로그인) 다른 건을
+        // 클릭했으면 selected가 이미 바뀌어 있습니다. 그런데도 그냥 진행하면 이 반납의
+        // 성공 안내와 상세창이 지금 화면(다른 사람 또는 다른 건)에 뒤늦게 튀어나옵니다.
+        if (selected?.id !== repairId) return;
+
         const updated = rows?.find((r) => r.id === repairId);
         if (updated) await selectRepair(updated);
 
