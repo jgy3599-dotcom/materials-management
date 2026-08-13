@@ -53,6 +53,9 @@ export async function load(force = false) {
 
 
 // 표에서 수리 건 하나를 고르면 반납 등록 칸과 반납 이력을 보여줍니다.
+// 반납 이력까지 제대로 그렸으면 true, 도중에 다른 행으로 밀려났거나 이력을 못
+// 받아왔으면 false를 돌려줍니다 — submitReturn이 이 값으로 "성공 안내를 덮어써도
+// 되는 상태인지"를 판단합니다.
 async function selectRepair(row) {
     selected = row;
     // 같은 행을 연달아 두 번 누르면 selected.id 비교만으로는 어느 응답이 최신인지
@@ -94,11 +97,13 @@ async function selectRepair(row) {
     // A의 것이 그려질 수 있기 때문입니다.
     try {
         const returns = await getRepairReturns(row.id);
-        if (seq !== selectSeq) return;
+        if (seq !== selectSeq) return false;
         renderTable(RETURN_TABLE_ID, returns, RETURN_COLUMNS, { pageSize: 10 });
+        return true;
     } catch (err) {
-        if (seq !== selectSeq) return;
+        if (seq !== selectSeq) return false;
         setStatus("repair-form-status", describeError(err, "반납 이력을 불러오지 못했습니다."), "error");
+        return false;
     }
 }
 
@@ -147,7 +152,12 @@ async function submitReturn(e) {
         if (selected?.id !== repairId) return;
 
         const updated = rows?.find((r) => r.id === repairId);
-        if (updated) await selectRepair(updated);
+        const detailShown = updated ? await selectRepair(updated) : false;
+
+        // selectRepair가 기다리는 동안 다른 행으로 옮겨갔거나(그러면 selectRepair가
+        // 자기 안전장치로 false를 돌려줌) 이력을 못 받아와 이미 자기 오류를 띄웠으면,
+        // 아래 성공 안내로 그걸 덮어쓰지 않고 여기서 그만둡니다.
+        if (updated && !detailShown) return;
 
         // 안내 문구는 다시 선택한 "뒤에" 보여줍니다. selectRepair가 폼을 새로 채우면서
         // 안내 문구를 지우기 때문입니다.
