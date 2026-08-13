@@ -139,12 +139,16 @@ async function submit(e) {
         document.getElementById("reg-form").reset();
         document.getElementById("reg-manufacturer").value = "-";
         document.getElementById("reg-vendor").value = "-";
-        await load(true);   // 새 카테고리가 생겼을 수 있어 목록을 다시 읽습니다
 
         const okMessage = `'${partName}' 자재가 등록되었습니다.`;
         setStatus("reg-form-status",
             warnings.length ? `${okMessage}\n\n다만: ${warnings.join("\n다만: ")}` : okMessage,
             warnings.length ? "warn" : "ok");
+
+        // 새 카테고리가 생겼을 수 있어 목록을 다시 읽습니다. 안내를 "먼저" 띄우는 이유는,
+        // 이 기다림 사이에도 사람이 바뀔 수 있어서입니다. 그때 뒤에 띄우면 앞사람의 성공
+        // 안내가 뒷사람 화면에 뜹니다(load는 reg-form-status를 건드리지 않습니다).
+        await load(true);
     } finally {
         btn.disabled = false;
         btn.textContent = "등록하기";
@@ -172,18 +176,27 @@ export function setUser(session, isAdminUser) {
     admin = isAdminUser;
     userEmail = session?.user?.email ?? "";
 
+    // ⚠️ 사람이 안 바뀌었으면 화면을 아예 건드리지 않고 나갑니다. 예전에는 아래
+    // fillCategoryOptions()가 이 바깥에 있었는데, 그러면 로그인이 자동으로 갱신될 때마다
+    // 카테고리 칸을 통째로 다시 그려서 골라둔 카테고리가 말없이 첫 항목으로 되돌아갔고,
+    // 그대로 등록하면 엉뚱한 카테고리로 자재가 들어갔습니다.
     const key = `${userEmail}|${admin}`;
-    if (key !== lastUserKey) {
-        lastUserKey = key;
-        // 돌고 있는 불러오기를 무효로 만듭니다. 앞사람 때 시작한 것이 뒤늦게 끝나면서
-        // 카테고리 칸을 다시 채우지 않게 합니다.
-        loadSeq++;
-        document.getElementById("reg-form").reset();
-        // 카테고리 칸이 '새 카테고리 직접 입력'에 가 있었으면 그 입력칸도 다시 숨깁니다.
-        updateNewCategoryBox();
-        setStatus("reg-form-status", "");
-        setStatus("reg-status", "");
-    }
+    if (key === lastUserKey) return;
+    lastUserKey = key;
 
-    if (loaded) fillCategoryOptions();
+    // 돌고 있는 불러오기를 무효로 만듭니다. 앞사람 때 시작한 것이 뒤늦게 끝나면서
+    // 카테고리 칸을 다시 채우지 않게 합니다.
+    loadSeq++;
+    // 카테고리도 다시 읽게 합니다. 위에서 무효로 만든 불러오기는 loaded를 건드리지 않고
+    // 물러나므로, 여기서 안 지우면 "이미 읽었음"인 채로 남아 다음 사람이 열어도 다시
+    // 안 읽고, 그 사이 새로 생긴 카테고리가 계속 안 보입니다.
+    loaded = false;
+    document.getElementById("reg-form").reset();
+    // 선택지 자체도 비웁니다. reset()은 고른 값만 되돌릴 뿐이라, 다시 읽기가 실패하면
+    // 관리자에게만 보여야 할 '➕ 새 카테고리 직접 입력'이 일반 사용자 화면에 남습니다.
+    document.getElementById("reg-category").innerHTML = "";
+    // 카테고리 칸이 '새 카테고리 직접 입력'에 가 있었으면 그 입력칸도 다시 숨깁니다.
+    updateNewCategoryBox();
+    setStatus("reg-form-status", "");
+    setStatus("reg-status", "");
 }

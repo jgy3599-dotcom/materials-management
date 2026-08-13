@@ -188,6 +188,9 @@ function openDialog(requestId) {
 
 // 팝업 안에서 무언가를 처리하고, 성공하면 목록을 새로 읽어옵니다.
 async function runAction(action, okMessage, failMessage) {
+    // 처리가 오가는 사이 자동 로그아웃되고 다음 사람이 들어올 수 있습니다. 그때 아래
+    // 안내를 그대로 쓰면 뒷사람 화면에 "입고 처리했습니다"가 뜹니다.
+    const myUserKey = lastUserKey;
     setBusy(true);
     // 팝업이 통째로 잠기므로 왜 안 눌리는지 알려줍니다. 응답이 느릴 때 아무 문구도
     // 없으면 닫을 수 없는 팝업으로 보입니다.
@@ -203,6 +206,9 @@ async function runAction(action, okMessage, failMessage) {
     setBusy(false);
     document.getElementById("pr-dialog").close();
     const reloadError = await load(true);
+
+    // 사람이 바뀌었으면 이 안내는 지금 화면을 보는 사람의 것이 아닙니다(위 주석 참고).
+    if (lastUserKey !== myUserKey) return;
 
     // ⚠️ 성공했으면 반드시 성공했다고 말해야 합니다. 목록 새로고침이 실패하면 화면에는
     // 빨간 오류만 남고 행도 예전 상태 그대로여서, 관리자가 "안 됐구나" 하고 같은 처리를
@@ -231,6 +237,8 @@ async function deleteRequest() {
     // 응답을 기다리는 사이 팝업이 다른 요청으로 바뀔 수 있어 지금 것을 붙잡아 둡니다.
     const request = openRequest;
     if (!request) return;
+    // 사람이 바뀌는 경우도 붙잡아 둡니다(runAction과 같은 이유).
+    const myUserKey = lastUserKey;
 
     setBusy(true);
     setStatus("pr-dialog-status", "처리 중...");
@@ -257,6 +265,11 @@ async function deleteRequest() {
     setBusy(false);
     document.getElementById("pr-dialog").close();
     const reloadError = await load(true);
+
+    // 사람이 바뀌었으면 여기서 그만둡니다. 삭제 자체는 이미 끝났고, 아래에서 표를 손보고
+    // 안내를 쓰는 것은 지금 화면을 보는 사람의 것이 아닙니다 — 특히 아래 filter는 뒷사람이
+    // 방금 읽어온 표에서 행 하나를 지웁니다.
+    if (lastUserKey !== myUserKey) return;
 
     if (reloadError) {
         // 목록을 못 읽었으면 방금 지운 요청만이라도 표에서 뺍니다. 그대로 두면 같은
@@ -479,9 +492,15 @@ export function setUser(session, admin) {
         requests = [];
         applyStatusFilter();
         setStatus("pr-form-status", "");
+        // 목록 쪽 문구도 지웁니다. 위에서 무효로 만든 불러오기는 자기가 써둔 "불러오는 중..."
+        // 을 지우지 않고 물러나므로, 안 지우면 그 문구가 그대로 멈춰 있습니다.
+        setStatus("pr-status", "");
+
+        // reset()이 요청자 칸까지 비우므로 여기서 다시 채웁니다. 이 대입이 조건 밖에
+        // 있으면 로그인이 자동으로 갱신될 때마다 실행돼서, 동료 이름을 적어둔 사람의
+        // 입력이 말없이 계정 이메일로 바뀝니다(요청자는 고쳐 쓰라고 만든 칸입니다).
+        document.getElementById("pr-requester").value = currentEmail;
     }
 
-    // reset()이 요청자 칸까지 비우므로 그 뒤에 다시 채웁니다.
-    document.getElementById("pr-requester").value = currentEmail;
     document.getElementById("pr-admin-hint").classList.toggle("hidden", isAdmin);
 }
