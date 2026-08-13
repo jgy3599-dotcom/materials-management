@@ -133,6 +133,11 @@ async function submitReturn(e) {
     // 읽으면 오류가 나고 "등록 실패"로 보입니다. 실제로는 DB에 반납이 들어가 재고까지
     // 되돌아간 상태라, 사람이 한 번 더 누르면 반납이 두 번 잡힙니다.
     const repairId = selected.id;
+    // id만 비교하면 "다른 사람/다른 건으로 옮겨갔다가 우연히 같은 id를 다시 골랐거나"
+    // "같은 건을 다시 클릭해 새로 입력을 시작한" 경우를 못 잡습니다 - 그때도 id는
+    // 똑같아서 통과해버립니다. selectSeq는 selected가 바뀔 때마다(재클릭 포함) 오르므로,
+    // "정확히 이 선택 그대로인지"를 이걸로 가립니다.
+    const mySelectSeq = selectSeq;
 
     btn.disabled = true;
     btn.textContent = "등록 중...";
@@ -158,9 +163,10 @@ async function submitReturn(e) {
         const rows = await load(true);
 
         // 여기까지 오는 사이 사람이 바뀌었거나(공용 계정 로그아웃/로그인) 다른 건을
-        // 클릭했으면 selected가 이미 바뀌어 있습니다. 그런데도 그냥 진행하면 이 반납의
-        // 성공 안내와 상세창이 지금 화면(다른 사람 또는 다른 건)에 뒤늦게 튀어나옵니다.
-        if (selected?.id !== repairId) return;
+        // 클릭했거나, 같은 건을 다시 클릭해 새로 입력을 시작했으면 selectSeq가 이미
+        // 올라 있습니다. 그런데도 그냥 진행하면 이 반납의 성공 안내와 상세창이 지금
+        // 화면(다른 사람, 다른 건, 또는 방금 새로 입력 중이던 내용)을 덮어씁니다.
+        if (selectSeq !== mySelectSeq) return;
 
         const updated = rows?.find((r) => r.id === repairId);
         const detailShown = updated ? await selectRepair(updated) : false;
@@ -180,9 +186,9 @@ async function submitReturn(e) {
             updated ? message : `${message}\n\n⚠️ 표를 새로 읽지 못해 남은 수량이 갱신되지 않았습니다. 새로고침으로 확인해주세요.`,
             updated ? "ok" : "warn");
     } catch (err) {
-        // 성공 경로의 selected?.id 확인과 같은 이유로, 여기 오는 사이 사람이 바뀌었거나
-        // 다른 건을 클릭했으면 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
-        if (selected?.id !== repairId) return;
+        // 성공 경로의 selectSeq 확인과 같은 이유로, 여기 오는 사이 선택이 바뀌었으면
+        // 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
+        if (selectSeq !== mySelectSeq) return;
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.
         setStatus("repair-form-status", describeError(err, "반납 등록에 실패했습니다."), "error");
     } finally {
