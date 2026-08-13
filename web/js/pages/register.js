@@ -98,6 +98,8 @@ async function submit(e) {
         try {
             newId = await insertMaterial(data);
         } catch (err) {
+            // 사람이 바뀌었으면 이 실패 안내도 뒷사람 화면에 띄우지 않습니다.
+            if (lastUserKey !== myUserKey) return;
             setStatus("reg-form-status", describeError(err, "자재 등록에 실패했습니다."), "error");
             return;
         }
@@ -114,7 +116,12 @@ async function submit(e) {
 
         // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 등록 자체는 이미 끝났고, 아래의
         // 폼 비우기와 안내는 지금 화면을 보고 있는 사람의 것이 아닙니다.
-        if (lastUserKey !== myUserKey) return;
+        // 다만 아래 load(true)를 건너뛰게 되므로, 새 카테고리를 만든 등록이었다면 목록이
+        // 낡은 채로 남습니다. "다시 읽어야 한다"고 표시해 다음에 이 화면을 열 때 읽게 합니다.
+        if (lastUserKey !== myUserKey) {
+            loaded = false;
+            return;
+        }
 
         document.getElementById("reg-form").reset();
         document.getElementById("reg-manufacturer").value = "-";

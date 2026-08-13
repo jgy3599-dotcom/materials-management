@@ -301,6 +301,12 @@ async function submitRequest(e) {
         return;
     }
 
+    // 부품명과 지금 사람을 보내기 "전에" 붙잡아 둡니다(register.js의 submit과 같은 이유).
+    // 응답을 기다리는 사이 로그아웃되고 다음 사람이 다른 부품을 고르면, 아래에서 선택칸을
+    // 그때 읽는 바람에 그 사람이 고른 부품 이름으로 "등록되었습니다"가 뜹니다.
+    const partName = document.getElementById("pr-part").selectedOptions[0]?.textContent ?? "";
+    const myUserKey = lastUserKey;
+
     const btn = document.getElementById("pr-submit-btn");
     btn.disabled = true;
     try {
@@ -313,7 +319,10 @@ async function submitRequest(e) {
             document.getElementById("pr-note").value.trim(),
         );
 
-        const partName = document.getElementById("pr-part").selectedOptions[0]?.textContent ?? "";
+        // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 등록 자체는 이미 끝났고, 아래의
+        // 안내와 요청사유 지우기는 지금 화면을 보고 있는 사람의 것이 아닙니다.
+        if (lastUserKey !== myUserKey) return;
+
         // 등록은 성공했으므로 빨간 실패 상자를 쓰지 않습니다. 실패한 줄 알고 한 번 더
         // 누르면 중복 요청이 하나 더 쌓입니다 — 중복을 알리려다 중복을 만드는 셈입니다.
         setStatus("pr-form-status",
@@ -325,6 +334,9 @@ async function submitRequest(e) {
         document.getElementById("pr-note").value = "";
         await load(true);
     } catch (err) {
+        // 성공 경로와 같은 이유로, 사람이 바뀌었으면 이 실패 안내도 뒷사람 화면에
+        // 띄우지 않습니다.
+        if (lastUserKey !== myUserKey) return;
         setStatus("pr-form-status", describeError(err, "구매요청 등록에 실패했습니다."), "error");
     } finally {
         btn.disabled = false;

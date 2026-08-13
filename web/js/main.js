@@ -123,6 +123,10 @@ function render(session) {
         // 등록·구매요청은 권한도 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
         registerPage.setUser(null, false);
         purchasePage.setUser(null, false);
+        // ⚠️ 자재 목록(materials.js)은 아직입니다. 여기서 부르지도 않고, 그 setUser는
+        // loaded만 지울 뿐 표를 안 비웁니다. 그래서 관리자가 로그아웃한 뒤 다시 읽기가
+        // 실패하면 관리자 때 그려진 표(행 두 번 클릭 → 수정/삭제 창)가 남습니다.
+        // purchase.js에 넣은 처리와 같은 것이 필요합니다.
         show(loginView);
     }
 }
