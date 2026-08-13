@@ -103,7 +103,10 @@ async function selectRepair(row) {
     } catch (err) {
         if (seq !== selectSeq) return false;
         setStatus("repair-form-status", describeError(err, "반납 이력을 불러오지 못했습니다."), "error");
-        return false;
+        // 여기서는 false가 아니라 true를 돌려줍니다. 이력 "표"를 못 받아온 것뿐이고,
+        // 반납 자체(재고 반영)는 이미 끝난 상태라서, submitReturn이 이걸 이유로 성공
+        // 안내를 숨기면 사용자가 실패로 착각하고 다시 눌러 반납이 두 번 잡힐 수 있습니다.
+        return true;
     }
 }
 
@@ -154,9 +157,9 @@ async function submitReturn(e) {
         const updated = rows?.find((r) => r.id === repairId);
         const detailShown = updated ? await selectRepair(updated) : false;
 
-        // selectRepair가 기다리는 동안 다른 행으로 옮겨갔거나(그러면 selectRepair가
-        // 자기 안전장치로 false를 돌려줌) 이력을 못 받아와 이미 자기 오류를 띄웠으면,
-        // 아래 성공 안내로 그걸 덮어쓰지 않고 여기서 그만둡니다.
+        // selectRepair가 기다리는 동안 다른 행으로 옮겨갔으면(그러면 selectRepair가
+        // 자기 안전장치로 false를 돌려줌) 아래 성공 안내가 지금 화면과 안 맞으니
+        // 여기서 그만둡니다. (이력 조회만 실패한 경우는 true이므로 계속 진행합니다.)
         if (updated && !detailShown) return;
 
         // 안내 문구는 다시 선택한 "뒤에" 보여줍니다. selectRepair가 폼을 새로 채우면서
@@ -211,6 +214,11 @@ export function setUser(session) {
     // 폼도 비웁니다. 특히 결과 칸('정상복귀'/'폐기')은 재고를 되돌릴지를 정하는 칸인데,
     // 앞사람이 '폐기'로 바꿔둔 것이 남으면 뒷사람의 반납이 폐기로 기록됩니다.
     document.getElementById("repair-form").reset();
+    // form.reset()은 버튼의 disabled·문구까지는 안 되돌립니다. 앞사람이 등록 버튼을
+    // 누른 채로 로그아웃하면, 그 요청이 끝날 때까지 뒷사람이 못 누르게 됩니다.
+    const submitBtn = document.getElementById("repair-submit-btn");
+    submitBtn.disabled = false;
+    submitBtn.textContent = "반납 등록";
     setStatus("repairs-status", "");
     setStatus("repair-form-status", "");
 }
