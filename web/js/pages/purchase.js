@@ -128,8 +128,11 @@ export async function load(force = false) {
         setStatus("pr-status", "");
         loaded = true;
     } catch (err) {
-        if (seq !== loadSeq) return null;
         const reason = describeError(err, "구매 요청을 불러오지 못했습니다.");
+        // 나보다 나중에 시작한 불러오기가 있으면 화면은 그쪽에 맡기고, 실패했다는 사실만
+        // 돌려줍니다. 여기서 null(=성공)을 돌려주면 부른 쪽이 "다만:" 없이 초록 성공으로
+        // 표시해, 새로고침이 실패했는데도 다 된 것처럼 보입니다.
+        if (seq !== loadSeq) return reason;
         setStatus("pr-status", reason, "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
         // 오갔다 돌아와도 낡은 표를 그대로 둡니다.
@@ -306,18 +309,19 @@ async function submitRequest(e) {
     // 그때 읽는 바람에 그 사람이 고른 부품 이름으로 "등록되었습니다"가 뜹니다.
     const partName = document.getElementById("pr-part").selectedOptions[0]?.textContent ?? "";
     const myUserKey = lastUserKey;
+    // ⚠️ DB에 들어가는 수량·요청사유도 반드시 여기서 읽어야 합니다. 아래 countOpenRequests를
+    // 기다리는 사이 사람이 바뀌면 setUser가 폼을 비우는데, 그때 칸에서 읽으면 비워진 값
+    // (수량 1, 사유 없음)이 그대로 등록됩니다. 안내까지 막히므로 아무도 모르게 잘못된
+    // 요청이 한 건 쌓입니다.
+    const qty = Number(document.getElementById("pr-qty").value);
+    const note = document.getElementById("pr-note").value.trim();
 
     const btn = document.getElementById("pr-submit-btn");
     btn.disabled = true;
     try {
         // 중복 요청 경고에 쓸 건수는 등록 전에 세어둡니다(등록하면 1건 늘어나므로).
         const openCount = await countOpenRequests(materialId);
-        await insertPurchaseRequest(
-            materialId,
-            Number(document.getElementById("pr-qty").value),
-            requester,
-            document.getElementById("pr-note").value.trim(),
-        );
+        await insertPurchaseRequest(materialId, qty, requester, note);
 
         // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 등록 자체는 이미 끝났고, 아래의
         // 안내와 요청사유 지우기는 지금 화면을 보고 있는 사람의 것이 아닙니다.

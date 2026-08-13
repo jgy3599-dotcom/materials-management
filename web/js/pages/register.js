@@ -9,6 +9,7 @@ let loaded = false;
 let admin = false;
 let userEmail = "";
 let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
+let loadSeq = 0;           // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
 
 
 // 기존 카테고리를 선택지로 만듭니다.
@@ -29,13 +30,22 @@ function updateNewCategoryBox() {
 
 export async function load(force = false) {
     if (loaded && !force) return;
+
+    // 순번을 매겨 두고, 나보다 나중에 시작한 것이 있으면 물러납니다. 겹쳐 돌면 늦게 끝난
+    // 쪽이 fillCategoryOptions()로 카테고리 칸을 통째로 갈아치우는데, 그 사이 사용자가
+    // 골라둔 카테고리가 말없이 첫 항목으로 되돌아가 엉뚱한 카테고리로 등록됩니다.
+    const seq = ++loadSeq;
+
     setStatus("reg-status", "불러오는 중...");
     try {
-        categories = await getCategories();
+        const rows = await getCategories();
+        if (seq !== loadSeq) return;
+        categories = rows;
         fillCategoryOptions();
         setStatus("reg-status", "");
         loaded = true;
     } catch (err) {
+        if (seq !== loadSeq) return;
         setStatus("reg-status", describeError(err, "카테고리 목록을 불러오지 못했습니다."), "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
         // 오갔다 돌아와도 낡은 내용을 그대로 둡니다.
@@ -120,6 +130,9 @@ async function submit(e) {
         // 낡은 채로 남습니다. "다시 읽어야 한다"고 표시해 다음에 이 화면을 열 때 읽게 합니다.
         if (lastUserKey !== myUserKey) {
             loaded = false;
+            // 화면에는 못 띄우지만 감사 로그를 못 남긴 것까지 조용히 넘기지는 않습니다.
+            // 자재는 DB에 들어갔는데 누가 넣었는지가 없는 상태라 흔적은 남겨야 합니다.
+            if (warnings.length) console.error(`자재 등록(id=${newId}) 후:`, warnings.join(" / "));
             return;
         }
 
@@ -162,6 +175,9 @@ export function setUser(session, isAdminUser) {
     const key = `${userEmail}|${admin}`;
     if (key !== lastUserKey) {
         lastUserKey = key;
+        // 돌고 있는 불러오기를 무효로 만듭니다. 앞사람 때 시작한 것이 뒤늦게 끝나면서
+        // 카테고리 칸을 다시 채우지 않게 합니다.
+        loadSeq++;
         document.getElementById("reg-form").reset();
         // 카테고리 칸이 '새 카테고리 직접 입력'에 가 있었으면 그 입력칸도 다시 숨깁니다.
         updateNewCategoryBox();
