@@ -80,6 +80,14 @@ async function submit(e) {
         note: value("reg-note"),
     };
 
+    // 등록이 오가는 사이 자동 로그아웃이나 다른 탭에서의 로그아웃이 걸리면 userEmail이
+    // 빈 문자열로 바뀝니다. 감사 로그의 "누가 했는지"는 지금 이 사람이어야 하므로,
+    // 보내기 "전에" 붙잡아 둡니다.
+    const actorEmail = userEmail;
+    // 지금 사람도 붙잡아 둡니다. 아래에서 폼을 비우고 안내를 쓰는데, 그 사이 사람이
+    // 바뀌었다면 뒷사람이 입력하던 내용을 지우고 앞사람의 안내를 띄우게 됩니다.
+    const myUserKey = lastUserKey;
+
     const btn = document.getElementById("reg-submit-btn");
     btn.disabled = true;
     btn.textContent = "등록 중...";
@@ -99,10 +107,14 @@ async function submit(e) {
         // 성공이라고 말하고 못 한 일만 "다만:" 뒤에 붙입니다(materials.js와 같은 방식).
         const warnings = [];
         try {
-            await insertAuditLog(userEmail, "insert", newId, partName, null, data);
+            await insertAuditLog(actorEmail, "insert", newId, partName, null, data);
         } catch (err) {
             warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
         }
+
+        // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 등록 자체는 이미 끝났고, 아래의
+        // 폼 비우기와 안내는 지금 화면을 보고 있는 사람의 것이 아닙니다.
+        if (lastUserKey !== myUserKey) return;
 
         document.getElementById("reg-form").reset();
         document.getElementById("reg-manufacturer").value = "-";

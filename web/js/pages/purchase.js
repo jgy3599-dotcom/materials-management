@@ -20,6 +20,7 @@ const HIST_TABLE = "purchase-history-table";
 let materials = [];
 let requests = [];
 let loaded = false;
+let loadSeq = 0;          // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
 let isAdmin = false;
 let currentEmail = "";
 let openRequest = null;   // 지금 팝업에 열려 있는 요청
@@ -104,11 +105,18 @@ function applyStatusFilter() {
 export async function load(force = false) {
     if (loaded && !force) return null;
 
+    // 순번을 매겨 두고, 나보다 나중에 시작한 것이 있으면 그리지 않고 물러납니다.
+    // 특히 사람이 바뀌면 setUser가 이 번호를 올려서, 앞사람 때 시작한 불러오기가
+    // 뒤늦게 끝나며 방금 비운 선택칸을 도로 채우고 "이미 읽었음"으로 표시하는 것을
+    // 막습니다(그렇게 되면 뒷사람이 열어도 다시 안 읽습니다).
+    const seq = ++loadSeq;
+
     setStatus("pr-status", "불러오는 중...");
     try {
         const [mats, reqs, hist] = await Promise.all([
             getMaterials(), getPurchaseRequests(), getPurchaseHistory(),
         ]);
+        if (seq !== loadSeq) return null;
         materials = mats;
         requests = reqs;
 
@@ -120,6 +128,7 @@ export async function load(force = false) {
         setStatus("pr-status", "");
         loaded = true;
     } catch (err) {
+        if (seq !== loadSeq) return null;
         const reason = describeError(err, "구매 요청을 불러오지 못했습니다.");
         setStatus("pr-status", reason, "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
@@ -433,13 +442,26 @@ export function setUser(session, admin) {
     if (key !== lastUserKey) {
         lastUserKey = key;
         loaded = false;
+        // 돌고 있는 불러오기를 무효로 만듭니다. 안 그러면 앞사람 때 시작한 것이 뒤늦게
+        // 끝나면서 아래에서 비운 선택칸을 도로 채우고 "이미 읽었음"으로 표시해, 뒷사람이
+        // 열어도 다시 안 읽습니다.
+        loadSeq++;
         document.getElementById("pr-form").reset();
+        // 상태 필터는 <form> 밖에 있어서 reset()이 손대지 못합니다. 앞사람이 '반려됨'
+        // 으로 좁혀둔 채 나가면, 뒷사람은 이유도 모른 채 반려 건만 보고 "진행 중인
+        // 요청이 없구나" 하고 판단합니다.
+        document.getElementById("pr-status-filter").value = "전체";
         // 부품·카테고리 선택칸은 비워둡니다. reset()은 앞사람이 보던 목록의 "첫 항목"으로
         // 돌릴 뿐이라, 목록을 다시 읽기 전에 등록하면 여전히 엉뚱한 자재로 올라갑니다.
         // 비워두면 등록을 눌러도 "부품을 선택해주세요"에서 막힙니다.
         document.getElementById("pr-category").innerHTML = "";
         document.getElementById("pr-part").innerHTML = "";
         document.getElementById("pr-stock").textContent = "";
+        // 표도 비웁니다. 위의 loaded=false는 "다음에 다시 읽어라"일 뿐이라, 그 읽기가
+        // 실패하면 관리자 때 그려진 표(행을 누르면 처리 팝업이 열리는 상태)가 그대로
+        // 남아, 일반 사용자가 승인·삭제를 눌러 날것의 DB 권한 오류를 보게 됩니다.
+        requests = [];
+        applyStatusFilter();
         setStatus("pr-form-status", "");
     }
 
