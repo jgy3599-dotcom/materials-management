@@ -16,6 +16,7 @@ let selected = null;   // 지금 고른 수리 건
 let loaded = false;
 let loadSeq = 0;       // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
 let selectSeq = 0;     // 행 선택 순번 (같은 행을 두 번 눌러도 나중 클릭만 그리려고)
+let submitSeq = 0;     // 반납 등록 순번 (설명은 submitReturn의 finally 참고)
 let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 
 
@@ -115,6 +116,13 @@ async function submitReturn(e) {
     e.preventDefault();
     if (!selected) return;
 
+    // 로그아웃하면 setUser가 버튼을 바로 눌림 해제해서 다음 사람이 곧장 쓸 수 있게
+    // 합니다(뒤에 나옴). 그런데 이 함수 자신이 나중에 끝나면서 finally에서 또 버튼을
+    // 만지면, 그 사이 다음 사람이 새로 누른 등록이 진행 중이어도 "등록 중..." 상태를
+    // 지워버려 두 번 누를 수 있게 됩니다. 그래서 내가 시작할 때의 순번을 기억해뒀다가,
+    // 끝날 때 그사이 다른 등록이 새로 시작되지 않았을 때만 버튼을 되돌립니다.
+    const mySubmitSeq = ++submitSeq;
+
     const btn = document.getElementById("repair-submit-btn");
     const qty = Number(document.getElementById("repair-qty").value);
     const outcome = document.getElementById("repair-outcome").value;
@@ -172,14 +180,17 @@ async function submitReturn(e) {
             updated ? message : `${message}\n\n⚠️ 표를 새로 읽지 못해 남은 수량이 갱신되지 않았습니다. 새로고침으로 확인해주세요.`,
             updated ? "ok" : "warn");
     } catch (err) {
-        // 성공 경로(위 147행)와 같은 이유로, 여기 오는 사이 사람이 바뀌었거나 다른 건을
-        // 클릭했으면 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
+        // 성공 경로의 selected?.id 확인과 같은 이유로, 여기 오는 사이 사람이 바뀌었거나
+        // 다른 건을 클릭했으면 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
         if (selected?.id !== repairId) return;
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.
         setStatus("repair-form-status", describeError(err, "반납 등록에 실패했습니다."), "error");
     } finally {
-        btn.disabled = false;
-        btn.textContent = "반납 등록";
+        // 그 사이 다른 등록이 새로 시작되지 않았을 때만 버튼을 되돌립니다(위 주석 참고).
+        if (mySubmitSeq === submitSeq) {
+            btn.disabled = false;
+            btn.textContent = "반납 등록";
+        }
     }
 }
 
@@ -204,6 +215,9 @@ export function setUser(session) {
     // 그대로 두면 뒤늦게 도착한 응답이 순번은 그대로라 통과해서, 지금은 비어 있는
     // 상세창에 앞사람의 반납 이력을 그릴 수 있습니다.
     selectSeq++;
+    // 앞사람의 등록 요청이 아직 돌고 있었다면, 그게 나중에 끝나면서 finally에서 버튼을
+    // 다시 만지지 않도록 순번을 올려 무효로 만듭니다. 버튼 자체는 아래에서 바로 풀어줍니다.
+    submitSeq++;
     selected = null;
     document.getElementById("repair-detail").classList.add("hidden");
     // 앞사람이 보던 표도 비웁니다. 남겨두면 뒤이은 다시 읽기가 실패했을 때, 빨간 오류가
