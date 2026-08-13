@@ -8,6 +8,7 @@ let categories = [];
 let loaded = false;
 let admin = false;
 let userEmail = "";
+let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 
 
 // 기존 카테고리를 선택지로 만듭니다.
@@ -125,8 +126,29 @@ export function init() {
 }
 
 
+// 사람이 바뀌면 앞사람이 입력해둔 것을 버립니다. 로그아웃할 때와 로그인할 때 양쪽에서
+// 불립니다 — main.js의 render() 참고.
+//
+// ⚠️ 일반 사용자는 공용 계정 하나를 여럿이 함께 쓰기 때문에, 로그인할 때만 비우면
+// 이메일이 같아 그냥 지나갑니다. 앞사람이 채워둔 부품명·수량이 남아 있으면 뒷사람이
+// 자기가 적지도 않은 자재를 등록하게 되고, 감사 로그에는 뒷사람 이름으로 남습니다.
+//
+// 반대로 아무 때나 비우면 안 됩니다. 이 함수는 로그인이 자동으로 갱신될 때도 불리는데,
+// 그때 비우면 한창 입력하던 내용이 이유 없이 사라집니다. 그래서 "사람이 바뀌었을 때만"
+// 비웁니다(usage.js·repairs.js와 같은 방식).
 export function setUser(session, isAdminUser) {
     admin = isAdminUser;
     userEmail = session?.user?.email ?? "";
+
+    const key = `${userEmail}|${admin}`;
+    if (key !== lastUserKey) {
+        lastUserKey = key;
+        document.getElementById("reg-form").reset();
+        // 카테고리 칸이 '새 카테고리 직접 입력'에 가 있었으면 그 입력칸도 다시 숨깁니다.
+        updateNewCategoryBox();
+        setStatus("reg-form-status", "");
+        setStatus("reg-status", "");
+    }
+
     if (loaded) fillCategoryOptions();
 }

@@ -423,12 +423,27 @@ export function setUser(session, admin) {
     // load()가 그냥 빠져나가서, 관리자가 로그아웃하고 공용 계정으로 로그인한 뒤에도
     // 표가 관리자 때 그려진 상태(행 클릭으로 처리 팝업이 열리는 상태)로 남습니다.
     // 그러면 일반 사용자가 승인·반려·삭제를 눌러 날것의 DB 권한 오류를 보게 됩니다.
+    //
+    // 폼도 같이 비웁니다. 공용 계정이라 앞사람이 골라둔 부품이 그대로 남으면, 뒷사람이
+    // 수량만 바꿔 누르는 순간 엉뚱한 자재로 구매요청이 올라갑니다.
+    //
+    // 이 함수는 로그인이 자동으로 갱신될 때도 불리므로, 아무 때나 비우면 한창 입력하던
+    // 내용이 이유 없이 사라집니다. 그래서 아래 "사람이 바뀌었을 때"에만 비웁니다.
     const key = `${currentEmail}|${admin}`;
     if (key !== lastUserKey) {
         lastUserKey = key;
         loaded = false;
+        document.getElementById("pr-form").reset();
+        // 부품·카테고리 선택칸은 비워둡니다. reset()은 앞사람이 보던 목록의 "첫 항목"으로
+        // 돌릴 뿐이라, 목록을 다시 읽기 전에 등록하면 여전히 엉뚱한 자재로 올라갑니다.
+        // 비워두면 등록을 눌러도 "부품을 선택해주세요"에서 막힙니다.
+        document.getElementById("pr-category").innerHTML = "";
+        document.getElementById("pr-part").innerHTML = "";
+        document.getElementById("pr-stock").textContent = "";
+        setStatus("pr-form-status", "");
     }
 
+    // reset()이 요청자 칸까지 비우므로 그 뒤에 다시 채웁니다.
     document.getElementById("pr-requester").value = currentEmail;
     document.getElementById("pr-admin-hint").classList.toggle("hidden", isAdmin);
 }
