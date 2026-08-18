@@ -291,8 +291,16 @@ create table repairs (
     expected_return_date date,
     note text,
     item_description text,  -- material_id가 없을 때, 부품 이름을 텍스트로 남겨둡니다.
+    -- 이 수리 건이 어느 출고에서 생겼는지. register_usage가 채웁니다.
+    -- ⚠️ 없으면 나중에 그 출고를 고치거나 지울 때 어느 수리 건인지 알 수 없습니다.
+    --    자재·수량·날짜로 추측하면 안 됩니다 — 같은 날 같은 자재를 같은 수량으로 두 번
+    --    출고한 기록이 실제로 있습니다(2026-06-22 Tail DRUM 2건).
+    -- 2026-08-18 이전에 만들어진 건은 비어 있습니다(소급이관 168건, 웹앱 등록 2건).
+    history_id bigint references history (id) on delete set null,
     created_at timestamptz not null default now()
 );
+
+create index idx_repairs_history_id on repairs (history_id);
 
 -- 수리 건 하나가 여러 번에 걸쳐 나눠서 돌아올 수 있어서(예: 1차 4개, 2차 1개), 반납은 별도 테이블로 둡니다.
 -- outcome='정상복귀'인 만큼만 현재재고에 다시 더하고, '폐기'는 재고를 복구하지 않습니다.
@@ -359,6 +367,8 @@ create or replace function register_usage(
 ) returns void
 language plpgsql
 as $$
+declare
+    v_history_id bigint;
 begin
     -- ⚠️ 화면은 min="1" required로 막지만, 이 RPC는 로그인한 사람 전체에게 열려 있어
     -- 직접 호출할 수 있습니다. 음수를 넣으면 아래 차감이 "현재재고 - (-5)"가 되어
@@ -371,13 +381,15 @@ begin
     insert into history (occurred_on, direction, material_id, quantity, manager, note,
                          equipment_id, problem, action_taken, part_memo)
     values (p_occurred_on, '출고', p_material_id, p_quantity, p_manager, p_note,
-            p_equipment_id, p_problem, p_action_taken, p_part_memo);
+            p_equipment_id, p_problem, p_action_taken, p_part_memo)
+    returning id into v_history_id;
 
     if p_deduct_stock then
         update materials set current_qty = current_qty - p_quantity where id = p_material_id;
 
-        insert into repairs (material_id, quantity, sent_on, reason, note)
-        values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note);
+        -- history_id를 같이 넣어야 나중에 이 출고를 고치거나 지울 때 이 수리 건을 찾습니다.
+        insert into repairs (material_id, quantity, sent_on, reason, note, history_id)
+        values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note, v_history_id);
     end if;
 end;
 $$;
@@ -591,3 +603,19 @@ grant execute on function register_usage(date, bigint, integer, text, text, text
 grant execute on function receive_purchase_request(bigint, bigint, integer, text, numeric, date) to authenticated;
 grant execute on function remove_purchase_request(bigint) to authenticated;
 grant execute on function add_repair_return(bigint, integer, date, text, text) to authenticated;
+
+
+-- ============================================================================
+-- 이미 만들어 둔 DB에 적용할 것
+--
+-- 이 파일은 처음부터 만들 때의 정의입니다. 이미 돌아가고 있는 DB에는 아래를
+-- Supabase 대시보드 SQL Editor에 붙여넣어 따로 실행해야 합니다.
+-- 이미 적용했으면 다시 돌려도 아무 일도 일어나지 않습니다.
+-- ============================================================================
+
+-- 2026-08-18 : 수리 건이 어느 출고에서 나왔는지 남기기
+-- 위에 있는 register_usage 정의도 함께 다시 실행해야 합니다(안쪽만 바뀌었고
+-- 이름과 인자는 그대로라, 캐시된 옛 화면도 계속 동작합니다).
+alter table repairs add column if not exists history_id bigint
+    references history (id) on delete set null;
+create index if not exists idx_repairs_history_id on repairs (history_id);

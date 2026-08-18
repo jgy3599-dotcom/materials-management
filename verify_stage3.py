@@ -175,6 +175,18 @@ def main():
         check("수리 건이 자동 생성됐다", 1, count("repairs", "material_id", mid))
         check("출고 이력이 남았다", 1, count("history", "material_id", mid))
 
+        # 수리 건이 "어느 출고에서 나왔는지"를 들고 있어야 합니다. 이게 비어 있으면
+        # 나중에 그 출고를 고치거나 지울 때 어느 수리 건인지 찾을 수 없습니다.
+        # 자재·수량·날짜로 추측하면 안 됩니다 - 같은 날 같은 자재를 같은 수량으로
+        # 두 번 출고한 기록이 실제로 있습니다(2026-06-22 Tail DRUM 2건).
+        rep = client.table("repairs").select("history_id").eq(
+            "material_id", mid).execute().data
+        hist = client.table("history").select("id").eq(
+            "material_id", mid).eq("direction", "출고").execute().data
+        check("수리 건에 출고 이력 번호가 들어갔다",
+              hist[0]["id"] if hist else None,
+              rep[0]["history_id"] if rep else None)
+
         # ---------- 2 ----------
         print("\n[2] 출고 등록 - 출처 '보우' 2개 (이력만 남고 재고는 그대로여야 함)")
         client.rpc("register_usage", {
