@@ -412,6 +412,109 @@ begin
 end;
 $$;
 
+
+-- 출고 이력을 고칩니다. 재고 조정·수리 건 처리·이력 수정이 한 묶음으로 일어납니다.
+--
+-- 화면에서 나눠 부르면 중간에 통신이 끊겼을 때 "재고만 바뀌고 이력은 그대로"인 상태가
+-- 생깁니다. 그래서 함수 하나로 묶습니다.
+--
+-- ⚠️ 수리 건은 원래 있던 것만 따라갑니다. 없던 것을 새로 만들지 않습니다.
+--    2026-07 이관분 4,244건과 2026-08-18에 넣은 211건은 한진 출처인데 수리 건이
+--    없습니다(history에 직접 넣었기 때문). 오타 하나 고쳤다고 수리 목록에 수천 건이
+--    갑자기 나타나면 안 됩니다.
+create or replace function update_usage(
+    p_id bigint,
+    p_occurred_on date,
+    p_material_id bigint,
+    p_quantity integer,
+    p_manager text,
+    p_note text,
+    p_equipment_id text,
+    p_problem text,
+    p_action_taken text,
+    p_part_memo text
+) returns void
+language plpgsql
+as $$
+declare
+    v_old history%rowtype;
+    v_repair_id bigint;
+begin
+    -- ⚠️ 권한 검사를 화면에만 두면 안 됩니다. 이 RPC는 로그인한 사람 누구나 직접
+    -- 부를 수 있습니다. coalesce를 쓰는 이유는 restrict_material_update와 같습니다 —
+    -- 권한이 안 적힌 계정은 이 값이 NULL이고, SQL에서 NULL <> '관리자'는 거짓이 아니라
+    -- NULL이라 IF가 통째로 건너뛰어 방어가 있으나 마나가 됩니다.
+    if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> '관리자' then
+        raise exception '관리자만 출고 이력을 고칠 수 있습니다.';
+    end if;
+
+    if p_quantity <= 0 then
+        raise exception '수량은 1개 이상이어야 합니다.';
+    end if;
+
+    -- ⚠️ for update로 잠급니다. 관리자 둘이 같은 행을 동시에 고치면 둘 다 "옛 수량 1"을
+    -- 읽고 각자 재고를 +1 되돌려 2가 늘어납니다.
+    select * into v_old from history where id = p_id and direction = '출고' for update;
+    if not found then
+        raise exception '출고 이력을 찾을 수 없습니다.';
+    end if;
+
+    select id into v_repair_id from repairs where history_id = p_id;
+
+    if v_repair_id is not null
+       and exists (select 1 from repair_returns where repair_id = v_repair_id) then
+        raise exception '수리 반납이 등록되어 있어 고칠 수 없습니다. 수리 관리에서 반납을 먼저 취소하세요.';
+    end if;
+
+    -- 옛 상태 되돌리기. material_id가 비어 있으면(2026-07 이관분) 0행에 걸려 아무 일도
+    -- 일어나지 않습니다. 그게 맞는 동작입니다 — 되돌릴 재고가 애초에 없습니다.
+    if usage_deducts_stock(v_old.manager) and v_old.material_id is not null then
+        update materials set current_qty = current_qty + v_old.quantity
+        where id = v_old.material_id;
+    end if;
+
+    -- 수리 건 처리
+    if v_repair_id is not null then
+        if usage_deducts_stock(p_manager) then
+            update repairs
+               set material_id = p_material_id, quantity = p_quantity,
+                   sent_on = p_occurred_on, reason = p_problem, note = p_note
+             where id = v_repair_id;
+        else
+            delete from repairs where id = v_repair_id;
+        end if;
+    elsif usage_deducts_stock(p_manager)
+          and not coalesce(usage_deducts_stock(v_old.manager), false)
+          and p_material_id is not null then
+        -- 재고를 안 깎던 출처에서 깎는 출처로 바뀌었으면 수리 건을 새로 만듭니다.
+        -- 예) 실수로 '보우'로 등록했다가 '한진 구매품'으로 고치는 경우.
+        --
+        -- ⚠️ 옛 상태도 한진이었다면(위 조건의 not ...이 거짓) 만들지 않습니다.
+        --    2026-07 이관분 4,244건과 2026-08-18에 넣은 211건이 그런 상태입니다 —
+        --    한진 출처인데 수리 건이 없습니다(history에 직접 넣었기 때문).
+        --    오타 하나 고쳤다고 수리 목록에 수천 건이 나타나면 안 됩니다.
+        insert into repairs (material_id, quantity, sent_on, reason, note, history_id)
+        values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note, p_id);
+    end if;
+
+    -- 새 상태 적용
+    if usage_deducts_stock(p_manager) and p_material_id is not null then
+        update materials set current_qty = current_qty - p_quantity
+        where id = p_material_id;
+    end if;
+
+    update history
+       set occurred_on = p_occurred_on, material_id = p_material_id,
+           quantity = p_quantity, manager = p_manager, note = p_note,
+           equipment_id = p_equipment_id, problem = p_problem,
+           action_taken = p_action_taken, part_memo = p_part_memo
+     where id = p_id;
+end;
+$$;
+
+grant execute on function update_usage(bigint, date, bigint, integer, text, text,
+                                       text, text, text, text) to authenticated;
+
 -- (2) 입고 처리: 재고 증가 + 구매이력 기록 + 요청 상태를 '입고완료'로.
 --     입고일(p_received_on)은 앱이 쓰던 값을 그대로 받습니다(서버 시간대 차이로 날짜가
 --     하루 어긋나는 일이 없도록 DB의 current_date를 쓰지 않습니다).
@@ -648,3 +751,8 @@ as $$
 $$;
 
 grant execute on function usage_deducts_stock(text) to authenticated;
+
+-- 2026-08-18 : 출고 이력 수정 (update_usage)
+-- 함수가 길어서 여기 다시 적지 않습니다. 위쪽 register_usage 다음에 있는
+-- "create or replace function update_usage(" 부터 그 아래
+-- "grant execute on function update_usage(...)" 까지를 통째로 복사해 실행하세요.

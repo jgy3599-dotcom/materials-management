@@ -151,6 +151,11 @@ def main():
         r = client.table(table).select("id", count="exact").eq(column, value).execute()
         return r.count or 0
 
+    def qty_of(material_id):
+        """자재 하나의 현재재고를 읽어옵니다. [10]에서 자재를 갈아탈 때 씁니다."""
+        r = client.table("materials").select("current_qty").eq("id", material_id).execute()
+        return r.data[0]["current_qty"] if r.data else None
+
     try:
         # ---------- 준비 ----------
         print("\n[준비] 테스트 전용 자재를 만듭니다")
@@ -404,6 +409,124 @@ def main():
             normal.rpc("adjust_material_qty", {"p_material_id": mid, "p_delta": 5}).execute()
             check("일반 권한이 현재재고를 5 늘렸다", before + 5, qty())
 
+        # ---------- 10 ----------
+        # 출고 이력 수정(update_usage)입니다. 자재·출처·수량을 바꾸면 재고가 두 군데서
+        # 움직이고 수리 건도 따라가야 합니다. 화면에서 나눠 부르면 중간에 끊겼을 때
+        # 재고만 바뀌고 이력은 그대로인 상태가 생기므로 DB 함수 하나로 묶여 있습니다.
+        print("\n[10] 출고 이력 수정")
+
+        made_b = client.table("materials").insert({
+            "category": "검증용", "part_name": TEST_PART_NAME + "_B",
+            "current_qty": START_QTY, "standard_qty": 0,
+            "note": "verify_stage3.py가 만든 임시 자재입니다. 남아있으면 지워도 됩니다.",
+        }).execute()
+        created["material_id_b"] = one_row(made_b, "임시 자재 B")["id"]
+        mid_b = created["material_id_b"]
+
+        # 고칠 대상을 하나 등록합니다. 한진이므로 재고가 1 깎이고 수리 건이 생깁니다.
+        q0 = qty()
+        client.rpc("register_usage", {
+            "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": 1,
+            "p_manager": "한진 SPARE", "p_note": "수정검증", "p_equipment_id": "TEST-EQ",
+            "p_problem": "수정검증", "p_action_taken": None, "p_part_memo": None,
+            "p_deduct_stock": True,
+        }).execute()
+        target = one_row(
+            client.table("history").select("id").eq("material_id", mid)
+                  .eq("direction", "출고").order("id", desc=True).limit(1).execute(),
+            "수정할 출고 이력")
+        hid = target["id"] if target else None
+
+        def edit(**over):
+            args = {"p_id": hid, "p_occurred_on": TODAY, "p_material_id": mid,
+                    "p_quantity": 1, "p_manager": "한진 SPARE", "p_note": "수정검증",
+                    "p_equipment_id": "TEST-EQ", "p_problem": "수정검증",
+                    "p_action_taken": None, "p_part_memo": None}
+            args.update(over)
+            return client.rpc("update_usage", args).execute()
+
+        print("  [10-1] 수량 1 -> 3 (재고가 2 더 줄어야 함)")
+        edit(p_quantity=3)
+        check("수량을 늘리면 그 차이만큼 재고가 준다", q0 - 3, qty())
+
+        print("  [10-2] 출처를 '보우'로 (재고 원복 + 수리 건 삭제)")
+        edit(p_quantity=3, p_manager="보우")
+        check("한진에서 보우로 바꾸면 재고가 원복된다", q0, qty())
+        check("딸린 수리 건이 사라졌다", 0, count("repairs", "history_id", hid))
+
+        print("  [10-3] 자재를 B로 (옛 자재는 늘고 새 자재는 줄어야 함)")
+        edit(p_quantity=1, p_manager="한진 SPARE")          # 다시 한진 (q0-1)
+        edit(p_quantity=1, p_manager="한진 SPARE", p_material_id=mid_b)
+        check("옛 자재 재고가 되돌아왔다", q0, qty())
+        check("새 자재 재고가 1 줄었다", START_QTY - 1, qty_of(mid_b))
+
+        # [10-2]에서 보우로 바꾸며 지워졌던 수리 건이, 다시 한진이 되면서 살아나야 합니다.
+        # 재고를 안 깎던 출처 -> 깎는 출처로 바뀐 경우입니다(실수로 보우로 등록했다가
+        # 고치는 상황). 옛 상태도 한진이었으면 만들지 않으므로, 이관분은 안 늘어납니다.
+        print("  [10-7] 보우 -> 한진으로 되돌리면 수리 건이 살아나는가")
+        check("수리 건이 다시 생겼다", 1, count("repairs", "history_id", hid))
+        rep_back = one_row(
+            client.table("repairs").select("material_id,quantity").eq("history_id", hid).execute(),
+            "되살아난 수리 건")
+        if rep_back:
+            check("되살아난 수리 건이 바뀐 자재를 가리킨다", mid_b, rep_back["material_id"])
+
+        print("  [10-5] 수량 0 시도 (거부돼야 함)")
+        expect_rejected(
+            "DB가 수량 0을 거부했다",
+            lambda: edit(p_quantity=0, p_material_id=mid_b),
+            "수량은 1개 이상이어야 합니다")
+
+        if normal is None:
+            print("  [10-6] 일반 계정을 안 받아서 건너뜁니다")
+            check_true("일반 권한의 출고 수정 차단을 확인했다", False,
+                       "일반 계정 없이 돌려서 확인하지 못했습니다 (이게 핵심 검사입니다)")
+        else:
+            print("  [10-6] 일반 권한이 고치려 하면 막히는가 (★ 핵심)")
+            expect_rejected(
+                "일반 권한의 출고 수정이 막혔다",
+                lambda: normal.rpc("update_usage", {
+                    "p_id": hid, "p_occurred_on": TODAY, "p_material_id": mid_b,
+                    "p_quantity": 2, "p_manager": "한진 SPARE", "p_note": "일반이_고침",
+                    "p_equipment_id": "TEST-EQ", "p_problem": "수정검증",
+                    "p_action_taken": None, "p_part_memo": None,
+                }).execute(),
+                "관리자만 출고 이력을 고칠 수 있습니다")
+
+        print("  [10-4] 수리 반납이 등록된 건 (수정이 거부돼야 함)")
+        # ⚠️ 위 hid는 쓸 수 없습니다. [10-2]에서 출처를 보우로 바꾸며 수리 건이 지워졌고,
+        #    [10-3]에서 다시 한진으로 되돌려도 수리 건은 안 돌아옵니다("없으면 새로 만들지
+        #    않는다"는 규칙 때문). 그래서 반납을 걸 수리 건이 없습니다.
+        #    반납 검사는 수리 건이 살아 있는 새 출고로 해야 합니다.
+        client.rpc("register_usage", {
+            "p_occurred_on": TODAY, "p_material_id": mid_b, "p_quantity": 1,
+            "p_manager": "한진 구매품", "p_note": "반납검증", "p_equipment_id": "TEST-EQ",
+            "p_problem": "반납검증", "p_action_taken": None, "p_part_memo": None,
+            "p_deduct_stock": True,
+        }).execute()
+        held = one_row(
+            client.table("history").select("id").eq("material_id", mid_b)
+                  .eq("direction", "출고").order("id", desc=True).limit(1).execute(),
+            "반납 검사용 출고 이력")
+        rep = one_row(
+            client.table("repairs").select("id")
+                  .eq("history_id", held["id"] if held else -1).execute(),
+            "반납 검사용 수리 건")
+        if held and rep:
+            client.rpc("add_repair_return", {
+                "p_repair_id": rep["id"], "p_returned_qty": 1, "p_returned_on": TODAY,
+                "p_outcome": "정상복귀", "p_note": "반납검증",
+            }).execute()
+            expect_rejected(
+                "반납이 등록된 건은 수정이 거부됐다",
+                lambda: client.rpc("update_usage", {
+                    "p_id": held["id"], "p_occurred_on": TODAY, "p_material_id": mid_b,
+                    "p_quantity": 2, "p_manager": "한진 구매품", "p_note": "반납검증",
+                    "p_equipment_id": "TEST-EQ", "p_problem": "반납검증",
+                    "p_action_taken": None, "p_part_memo": None,
+                }).execute(),
+                "수리 반납이 등록되어 있어")
+
     except Exception as e:
         # ⚠️ 이 except를 빼지 마세요. 없으면 오류가 그대로 밖으로 나가서, 뒷정리는
         # 되지만 아래 결과 요약에 도달하지 못합니다. 정작 진단이 필요한 순간에
@@ -415,8 +538,11 @@ def main():
     finally:
         # ---------- 뒷정리 ----------
         print("\n[뒷정리] 테스트로 만든 데이터를 지웁니다")
-        mid = created["material_id"]
-        if mid:
+        # [10]에서 자재 B를 하나 더 만들고 출고를 B로 갈아타므로, 둘 다 지워야 합니다.
+        left_ids = []
+        for mid in (created["material_id"], created.get("material_id_b")):
+            if not mid:
+                continue
             try:
                 for r in client.table("repairs").select("id").eq("material_id", mid).execute().data:
                     client.table("repair_returns").delete().eq("repair_id", r["id"]).execute()
@@ -425,11 +551,13 @@ def main():
                 client.table("purchase_requests").delete().eq("material_id", mid).execute()
                 client.table("history").delete().eq("material_id", mid).execute()
                 client.table("materials").delete().eq("id", mid).execute()
-                left = client.table("materials").select("id").eq("id", mid).execute().data
-                print("       전부 정리됐습니다" if not left else f"       자재 id={mid}가 남아있습니다. 직접 지워주세요")
+                if client.table("materials").select("id").eq("id", mid).execute().data:
+                    left_ids.append(mid)
             except Exception as e:
-                print(f"       정리 중 오류: {e}")
-                print(f"       자재 id={mid} ('{TEST_PART_NAME}')를 직접 지워주세요")
+                print(f"       정리 중 오류(자재 id={mid}): {e}")
+                left_ids.append(mid)
+        print("       전부 정리됐습니다" if not left_ids
+              else f"       자재 id={left_ids}가 남아있습니다. 직접 지워주세요")
 
     print("\n" + "=" * 74)
     failed = [n for n, ok, _ in results if not ok]
