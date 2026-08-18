@@ -160,8 +160,24 @@ def main():
             check("요청 목록 표가 만들어진다", True)
             check("상태 필터가 채워진다", page.locator("#pr-status-filter option").count() > 1,
                   f"{page.locator('#pr-status-filter option').count()}개")
+            # ⚠️ 요청 목록 표의 헤더는 불러오기가 끝나기 전에 이미 있습니다.
+            #    로그인할 때 setUser가 선택칸을 비우고 빈 표를 한 번 그리기 때문입니다
+            #    (공용 계정에서 앞사람 입력이 남지 않게 하려고 일부러 넣은 동작).
+            #    그래서 헤더만 기다리고 바로 아래 둘을 보면 아직 안 채워져 있어
+            #    멀쩡한 화면인데도 실패로 잡힙니다. 각각 따로 기다려야 합니다.
+            try:
+                page.wait_for_function(
+                    "document.querySelectorAll('#pr-part option').length > 0",
+                    timeout=25000)
+            except Exception:
+                pass
             check("부품 선택칸이 채워진다", page.locator("#pr-part option").count() > 0,
                   f"{page.locator('#pr-part option').count()}개")
+            try:
+                page.wait_for_selector("#purchase-history-table .tabulator-header",
+                                       timeout=25000)
+            except Exception:
+                pass
             check("구매 이력 표가 만들어진다",
                   page.locator("#purchase-history-table .tabulator-header").count() > 0)
 
