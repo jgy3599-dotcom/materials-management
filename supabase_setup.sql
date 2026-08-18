@@ -515,6 +515,55 @@ $$;
 grant execute on function update_usage(bigint, date, bigint, integer, text, text,
                                        text, text, text, text) to authenticated;
 
+
+-- 출고 이력을 지웁니다. 재고 원복·수리 건 삭제·이력 삭제가 한 묶음으로 일어납니다.
+--
+-- 반납이 등록된 건은 거부합니다. 반납은 이미 재고를 되돌려놨는데 여기서 또 되돌리면
+-- 두 번 늘어납니다. 반납을 먼저 취소하게 안내하는 쪽이 안전합니다.
+create or replace function delete_usage(p_id bigint)
+returns void
+language plpgsql
+as $$
+declare
+    v_old history%rowtype;
+    v_repair_id bigint;
+begin
+    -- ⚠️ 권한 검사를 화면에만 두면 안 됩니다. 이 RPC는 로그인한 사람 누구나 직접
+    -- 부를 수 있습니다. coalesce 이유는 update_usage와 같습니다.
+    if coalesce(auth.jwt() -> 'app_metadata' ->> 'role', '') <> '관리자' then
+        raise exception '관리자만 출고 이력을 지울 수 있습니다.';
+    end if;
+
+    -- ⚠️ for update로 잠급니다. 둘이 동시에 지우려 하면 재고가 두 번 되돌아갑니다.
+    select * into v_old from history where id = p_id and direction = '출고' for update;
+    if not found then
+        raise exception '출고 이력을 찾을 수 없습니다.';
+    end if;
+
+    select id into v_repair_id from repairs where history_id = p_id;
+
+    if v_repair_id is not null
+       and exists (select 1 from repair_returns where repair_id = v_repair_id) then
+        raise exception '수리 반납이 등록되어 있어 지울 수 없습니다. 수리 관리에서 반납을 먼저 취소하세요.';
+    end if;
+
+    -- 재고 되돌리기. material_id가 비어 있으면(2026-07 이관분) 0행에 걸려 아무 일도
+    -- 일어나지 않습니다. 되돌릴 재고가 애초에 없습니다.
+    if usage_deducts_stock(v_old.manager) and v_old.material_id is not null then
+        update materials set current_qty = current_qty + v_old.quantity
+        where id = v_old.material_id;
+    end if;
+
+    if v_repair_id is not null then
+        delete from repairs where id = v_repair_id;
+    end if;
+
+    delete from history where id = p_id;
+end;
+$$;
+
+grant execute on function delete_usage(bigint) to authenticated;
+
 -- (2) 입고 처리: 재고 증가 + 구매이력 기록 + 요청 상태를 '입고완료'로.
 --     입고일(p_received_on)은 앱이 쓰던 값을 그대로 받습니다(서버 시간대 차이로 날짜가
 --     하루 어긋나는 일이 없도록 DB의 current_date를 쓰지 않습니다).
@@ -756,3 +805,7 @@ grant execute on function usage_deducts_stock(text) to authenticated;
 -- 함수가 길어서 여기 다시 적지 않습니다. 위쪽 register_usage 다음에 있는
 -- "create or replace function update_usage(" 부터 그 아래
 -- "grant execute on function update_usage(...)" 까지를 통째로 복사해 실행하세요.
+
+-- 2026-08-18 : 출고 이력 삭제 (delete_usage)
+-- 위쪽 update_usage 다음에 있는 "create or replace function delete_usage(" 부터
+-- "grant execute on function delete_usage(bigint) to authenticated;" 까지를 복사해 실행하세요.

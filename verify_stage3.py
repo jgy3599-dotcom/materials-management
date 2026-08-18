@@ -527,6 +527,62 @@ def main():
                 }).execute(),
                 "수리 반납이 등록되어 있어")
 
+        # ---------- 11 ----------
+        # 출고 이력 삭제(delete_usage)입니다. 재고 원복·수리 건 삭제·이력 삭제가
+        # 한 묶음으로 일어나야 합니다.
+        print("\n[11] 출고 이력 삭제")
+
+        before_del = qty_of(mid_b)
+        client.rpc("register_usage", {
+            "p_occurred_on": TODAY, "p_material_id": mid_b, "p_quantity": 2,
+            "p_manager": "한진 SPARE", "p_note": "삭제검증", "p_equipment_id": "TEST-EQ",
+            "p_problem": "삭제검증", "p_action_taken": None, "p_part_memo": None,
+            "p_deduct_stock": True,
+        }).execute()
+        dtar = one_row(
+            client.table("history").select("id").eq("material_id", mid_b)
+                  .eq("direction", "출고").order("id", desc=True).limit(1).execute(),
+            "삭제할 출고 이력")
+        did = dtar["id"] if dtar else None
+        check("삭제 검사용 출고로 재고가 2 줄었다", before_del - 2, qty_of(mid_b))
+
+        # 일반 권한 검사를 먼저 합니다. 뒤에 하면 대상이 이미 지워지고 없습니다.
+        if normal is None:
+            print("  [11-3] 일반 계정을 안 받아서 건너뜁니다")
+            check_true("일반 권한의 출고 삭제 차단을 확인했다", False,
+                       "일반 계정 없이 돌려서 확인하지 못했습니다 (이게 핵심 검사입니다)")
+        else:
+            print("  [11-3] 일반 권한이 지우려 하면 막히는가 (★ 핵심)")
+            expect_rejected(
+                "일반 권한의 출고 삭제가 막혔다",
+                lambda: normal.rpc("delete_usage", {"p_id": did}).execute(),
+                "관리자만 출고 이력을 지울 수 있습니다")
+            check("거부됐으므로 이력이 남아 있다", 1, count("history", "id", did))
+
+        print("  [11-2] 수리 반납이 등록된 건 (삭제가 거부돼야 함)")
+        drep = one_row(client.table("repairs").select("id").eq("history_id", did).execute(),
+                       "삭제 대상의 수리 건")
+        if drep:
+            client.rpc("add_repair_return", {
+                "p_repair_id": drep["id"], "p_returned_qty": 1, "p_returned_on": TODAY,
+                "p_outcome": "정상복귀", "p_note": "삭제검증",
+            }).execute()
+            expect_rejected(
+                "반납이 등록된 건은 삭제가 거부됐다",
+                lambda: client.rpc("delete_usage", {"p_id": did}).execute(),
+                "수리 반납이 등록되어 있어")
+
+            print("  [11-1] 반납을 지우면 삭제가 되는가 (재고 원복 + 수리 건 삭제 + 이력 삭제)")
+            # 반납이 '정상복귀'라 재고가 1 늘어난 상태입니다. 그 반납을 지워도 재고는
+            # 자동으로 안 돌아가므로, 여기서 직접 되돌려 놓고 삭제를 시험합니다.
+            client.table("repair_returns").delete().eq("repair_id", drep["id"]).execute()
+            client.rpc("adjust_material_qty",
+                       {"p_material_id": mid_b, "p_delta": -1}).execute()
+            client.rpc("delete_usage", {"p_id": did}).execute()
+            check("재고가 원복됐다", before_del, qty_of(mid_b))
+            check("수리 건이 지워졌다", 0, count("repairs", "history_id", did))
+            check("출고 이력이 지워졌다", 0, count("history", "id", did))
+
     except Exception as e:
         # ⚠️ 이 except를 빼지 마세요. 없으면 오류가 그대로 밖으로 나가서, 뒷정리는
         # 되지만 아래 결과 요약에 도달하지 못합니다. 정작 진단이 필요한 순간에
