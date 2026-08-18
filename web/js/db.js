@@ -227,6 +227,27 @@ export async function insertAuditLog(actorEmail, action, materialId, partName, b
 }
 
 
+// 출고 이력 한 줄에서 '부품명(규격)'과 '부품메모'를 만듭니다.
+//
+// ⚠️ 2026-07 이관분 4,244건은 material_id가 비어 있어(부품명이 안 맞아 연결이 안 됨)
+//    자재목록에서 이름을 가져올 수 없습니다. 그럴 때는 이력에 직접 적힌 part_memo를
+//    부품명으로 씁니다. 구매이력(getPurchaseHistory)이 item_description을 쓰는 것과
+//    같은 방식입니다.
+//
+//    그러면 부품명과 부품메모가 같은 글자가 되므로, 같을 때는 메모를 비웁니다.
+//    (부품메모는 원래 부품명 외에 덧붙이는 메모 칸입니다)
+//
+//    사용이력 화면과 BOQ 설비이력이 이 함수를 같이 씁니다. 한쪽만 고치면 두 화면이
+//    갈라지므로 반드시 여기서 함께 바꾸세요.
+function historyPartName(row) {
+    const partName = row.materials?.part_name ?? row.part_memo ?? null;
+    return {
+        "부품명(규격)": partName,
+        부품메모: row.part_memo === partName ? null : row.part_memo,
+    };
+}
+
+
 // 사용(출고) 이력을 가져옵니다.
 // 입고 기록은 '구매 요청' 쪽에서 따로 관리하므로, 여기서는 출고만 DB에서 걸러서 받습니다.
 export async function getUsageHistory() {
@@ -242,13 +263,12 @@ export async function getUsageHistory() {
 
     return rows.map((row) => ({
         일자: row.occurred_on,
-        "부품명(규격)": row.materials?.part_name ?? null,
+        ...historyPartName(row),
         수량: row.quantity,
         "자재 출처": row.manager,
         설비ID: row.equipment_id,
         문제: row.problem,
         조치: row.action_taken,
-        부품메모: row.part_memo,
         비고: row.note,
     }));
 }
@@ -502,12 +522,11 @@ export async function getEquipmentHistory(equipmentId) {
 
     return (data ?? []).map((row) => ({
         일자: row.occurred_on,
-        "부품명(규격)": row.materials?.part_name ?? null,
+        ...historyPartName(row),
         수량: row.quantity,
         "자재 출처": row.manager,
         문제: row.problem,
         조치: row.action_taken,
-        부품메모: row.part_memo,
         비고: row.note,
     }));
 }
