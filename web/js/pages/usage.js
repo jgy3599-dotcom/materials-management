@@ -1,8 +1,13 @@
 // 사용(출고) 이력 화면입니다. 이력을 표로 보여주고, 아래에서 새 출고를 등록합니다.
 // 입고(구매) 이력은 '구매 요청' 쪽에서 따로 관리합니다.
-import { getUsageHistory, getMaterialOptions, getMaterial, registerUsage } from "../db.js";
+import {
+    getUsageHistory, getMaterialOptions, getMaterial, registerUsage,
+    getUsage, updateUsage, deleteUsage, insertAuditLog,
+} from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, today, esc } from "../ui.js";
+
+const el = (id) => document.getElementById(id);
 
 // 표에 보여줄 컬럼입니다. '구분'은 이 화면이 전부 출고라서 값이 늘 같아 뺐습니다.
 const COLUMNS = ["일자", "부품명(규격)", "수량", "자재 출처", "설비ID", "문제", "조치", "부품메모", "비고"];
@@ -27,12 +32,16 @@ const MATERIAL_SOURCES = {
 };
 const CUSTOM_SOURCE = "직접 입력";
 
-let materials = [];        // 부품 선택칸에 쓸 자재 목록
+let materials = [];        // 부품 선택칸에 쓸 자재 목록 (id, 카테고리, 부품명(규격), 창고번호, 현재재고)
 let loaded = false;
 let loadSeq = 0;           // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
 let dateTouched = false;   // 사람이 일자 칸을 직접 고쳤는지
 let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 let onJumpToBoq = null;    // 표에서 설비를 고르면 BOQ 검색으로 넘기는 함수
+let isAdmin = false;
+let currentEmail = "";
+let openUsage = null;       // 지금 팝업에 열려 있는 출고 이력 (DB에서 새로 읽은 값)
+let busyUsage = false;      // 팝업의 저장·삭제가 DB 응답을 기다리는 중인지
 
 
 // 선택칸을 다시 그리면 골라둔 값이 첫 번째 것으로 되돌아갑니다. 폼을 채우던 중에
@@ -164,6 +173,9 @@ export async function load(force = false) {
                 document.getElementById("usage-jump-btn").textContent = `🔎 '${id}' BOQ 검색으로 이동`;
                 document.getElementById("usage-jump-btn").dataset.equipmentId = id ?? "";
             },
+            // 한 번 클릭은 위에서 이미 BOQ 이동에 쓰고 있으므로 그대로 두고, 수정은
+            // 두 번 클릭에 붙입니다. 관리자가 아니면 아예 붙이지 않습니다.
+            onRowDblClick: isAdmin ? (row) => openDialog(row.id) : null,
         });
         document.getElementById("usage-count").textContent = `총 ${history.length.toLocaleString()}건`;
 
@@ -190,9 +202,16 @@ export async function load(force = false) {
 // 골라둔 부품이 남아 있으면 뒷사람이 설비ID만 채우고 등록해 엉뚱한 재고가 깎입니다.
 // 반대로 로그인 상태가 유지되는 동안(토큰 자동 갱신 등)에는 적던 폼을 지우면 안 되므로,
 // 그때는 이메일이 같으면 그냥 둡니다.
-export function setUser(session) {
-    const key = session?.user?.email ?? "";
-    if (key && key === lastUserKey) return;
+export function setUser(session, admin) {
+    isAdmin = admin;
+    currentEmail = session?.user?.email ?? "";
+
+    // 관리자 여부도 키에 넣습니다 — 더블클릭 수정 팝업을 붙일지가 이 값에 달려 있어서,
+    // 이메일이 같아도 권한이 바뀌면 표를 다시 그려야 합니다(materials.js·purchase.js와 같은 이유).
+    // 로그아웃(session이 없음)은 예전처럼 무조건 비웁니다 — 공용 계정이라 이메일만 보면
+    // 정작 사람이 바뀌는 경우를 놓칩니다.
+    const key = session ? `${currentEmail}|${admin}` : "";
+    if (session && key === lastUserKey) return;
 
     lastUserKey = key;
     loaded = false;
@@ -206,6 +225,15 @@ export function setUser(session) {
     setStatus("usage-form-status", "");
     clearJump();
     document.getElementById("usage-form").reset();
+    // 로그아웃 경로(session이 없음)는 main.js가 열린 팝업을 전부 닫아 줍니다(dialog[open]).
+    // 하지만 로그인 상태를 유지한 채 관리자 여부만 바뀌어 setUser가 다시 불리는 경로는
+    // main.js가 팝업을 닫지 않으므로, 열려 있던 팝업이 있으면 여기서 직접 닫습니다.
+    // 저장·삭제는 openUsage가 null이면 막히므로 위험하지는 않지만, 그대로 두면 버튼이
+    // 눌러도 조용히 반응하지 않는 팝업이 화면에 남습니다.
+    const openDialogEl = document.getElementById("usage-dialog");
+    if (openDialogEl.open) openDialogEl.close();
+    openUsage = null;
+    busyUsage = false;
     // 앞사람 때 받아온 자재 목록도 버립니다. 남겨두면 뒤이은 다시 읽기가 실패했을 때,
     // 빨간 오류가 뜬 화면에서 앞사람 시점의 목록으로 등록을 시도할 수 있습니다.
     materials = [];
@@ -326,8 +354,308 @@ async function submit(e) {
 }
 
 
+// ---------------------------------------------------------------------------
+// 수정/삭제 팝업 (관리자만, 행을 두 번 클릭하면 열립니다)
+// ---------------------------------------------------------------------------
+
+// 팝업의 카테고리 선택칸을 채웁니다. select에 넣을 값을 인자로 받습니다 — 팝업을 열 때는
+// 그 기록의 자재가 속한 카테고리를 미리 골라줘야, 부품 목록이 그 카테고리로 좁혀진 채로
+// 열립니다. 목록에 없는 값(자재가 안 연결된 기록 등)이면 '전체'로 둡니다.
+function fillDialogCategoryOptions(selected) {
+    const categories = [...new Set(materials.map((m) => m["카테고리"]).filter(Boolean))].sort();
+    refill(el("ud-category"),
+        ["전체", ...categories].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join(""));
+    el("ud-category").value = categories.includes(selected) ? selected : "전체";
+}
+
+
+// 팝업의 부품 선택칸을 채웁니다. 등록 폼의 fillPartOptions와 같은 이유로 맨 위에 빈 항목을
+// 둡니다 — 다시 그리면 브라우저가 첫 항목을 자동으로 고르는데, 그게 실제 자재이면 사람이
+// 모르는 사이에 엉뚱한 자재로 바뀐 채 저장될 수 있습니다.
+function fillDialogPartOptions() {
+    const category = el("ud-category").value;
+    const list = category === "전체" ? materials : materials.filter((m) => m["카테고리"] === category);
+
+    refill(el("ud-part"), [`<option value="">부품을 선택하세요</option>`, ...list.map((m) => {
+        const warehouse = m["창고번호"] ? ` · 창고 ${m["창고번호"]}` : "";
+        return `<option value="${m.id}">${esc(m["부품명(규격)"])}${esc(warehouse)}</option>`;
+    })].join(""));
+}
+
+
+// 팝업의 자재 출처 선택칸을 채웁니다. 등록 폼과 같은 목록에 맨 위 빈 항목을 더합니다.
+// currentValue(지금 이 기록의 출처)가 목록에 없으면(옛 기록에 직접 입력으로 남은 값 등)
+// 목록 맨 끝에 끼워 넣습니다. 안 그러면 선택칸이 빈 채로 열려서, 손대지 않고 저장해도
+// 출처가 조용히 지워집니다.
+function fillDialogSourceOptions(currentValue) {
+    const options = [...Object.keys(MATERIAL_SOURCES), CUSTOM_SOURCE];
+    const all = currentValue && !options.includes(currentValue) ? [...options, currentValue] : options;
+    refill(el("ud-source"),
+        [`<option value="">출처를 선택하세요</option>`,
+            ...all.map((s) => `<option value="${esc(s)}">${esc(s)}</option>`)].join(""));
+}
+
+
+// 창 안에서 무언가를 하는 버튼 전부입니다. materials.js의 DIALOG_BUTTONS와 같은 이유로
+// 하나가 DB 응답을 기다리는 동안 나머지도 같이 잠급니다. 닫기까지 잠그는 것은, 저장을
+// 기다리는 사이에 창을 닫고 다른 행을 열면 뒤늦게 온 응답이 새로 연 창의 openUsage를
+// 건드려 엉뚱한 이력이 닫히거나 지워질 수 있기 때문입니다.
+const USAGE_DIALOG_BUTTONS = ["ud-save-btn", "ud-delete-btn", "ud-dialog-close", "ud-delete-confirm"];
+
+function setUsageBusy(on) {
+    busyUsage = on;
+    for (const id of USAGE_DIALOG_BUTTONS) el(id).disabled = on;
+
+    if (!on) {
+        // 이력을 못 불러온 창이면 저장·삭제는 잠긴 채로 둡니다.
+        el("ud-save-btn").disabled = !openUsage;
+        el("ud-delete-confirm").disabled = !openUsage;
+        // 삭제는 "삭제하겠습니다"에 체크가 되어 있을 때만 다시 풉니다.
+        el("ud-delete-btn").disabled = !openUsage || !el("ud-delete-confirm").checked;
+    }
+}
+
+
+// 창 안의 모든 칸을 비우고 버튼을 잠급니다. materials.js의 resetDialog와 같은 이유로
+// 창을 띄우기 "전에" 반드시 불러야 합니다 — 앞서 열었던 기록의 값이 남아 있으면, 새
+// 기록을 불러오는 짧은 사이에 그 값이 그대로 보이고 삭제 버튼까지 살아 있을 수 있습니다.
+function resetUsageDialog() {
+    for (const id of ["ud-date", "ud-part", "ud-source", "ud-qty",
+        "ud-equipment", "ud-problem", "ud-action", "ud-part-memo", "ud-note"]) {
+        el(id).value = "";
+    }
+    el("ud-category").innerHTML = "";
+    el("ud-stock-hint").textContent = "";
+
+    el("ud-delete-details").open = false;
+    el("ud-delete-confirm").checked = false;
+    el("ud-delete-confirm").disabled = true;
+    el("ud-delete-btn").disabled = true;
+    el("ud-save-btn").disabled = true;
+}
+
+
+// 저장하면 재고가 어떻게 움직이는지 미리 보여줍니다.
+// 사용자가 자재나 출처를 바꿨을 때 무슨 일이 일어나는지 모르고 저장하는 것을 막습니다.
+function updateStockHint() {
+    if (!openUsage) return;
+    const oldDeduct = MATERIAL_SOURCES[openUsage.manager] === true;
+    const newSource = el("ud-source").value;
+    const newDeduct = MATERIAL_SOURCES[newSource] === true;
+    const newMatId = el("ud-part").value ? Number(el("ud-part").value) : null;
+    const newQty = Number(el("ud-qty").value) || 0;
+
+    const moves = new Map();   // 자재 id -> 증감
+    if (oldDeduct && openUsage.material_id != null) {
+        moves.set(openUsage.material_id,
+            (moves.get(openUsage.material_id) ?? 0) + openUsage.quantity);
+    }
+    if (newDeduct && newMatId != null) {
+        moves.set(newMatId, (moves.get(newMatId) ?? 0) - newQty);
+    }
+
+    const lines = [];
+    for (const [matId, delta] of moves) {
+        if (delta === 0) continue;
+        const m = materials.find((x) => x.id === matId);
+        const name = m ? m["부품명(규격)"] : `자재 ${matId}`;
+        const now = m ? m["현재재고"] : null;
+        const after = now == null ? null : now + delta;
+        lines.push(`'${name}' ${delta > 0 ? "+" : ""}${delta}`
+            + (now == null ? "" : ` (${now} → ${after})`)
+            + (after != null && after < 0 ? "  ⚠️ 음수가 됩니다" : ""));
+    }
+    if (oldDeduct && !newDeduct) lines.push("수리 관리에서 이 건이 사라집니다.");
+
+    el("ud-stock-hint").textContent =
+        lines.length ? `저장하면: ${lines.join(" / ")}` : "재고는 바뀌지 않습니다.";
+}
+
+
+// 표에 그려둔 값이 아니라 DB에서 새로 읽은 값으로 칸을 채웁니다.
+// 화면을 오래 열어둔 사이에 다른 사람이 고쳤을 수 있기 때문입니다.
+async function openDialog(id) {
+    openUsage = null;
+    resetUsageDialog();
+    setStatus("ud-dialog-status", "불러오는 중...");
+    el("usage-dialog").showModal();
+
+    let fresh;
+    try {
+        fresh = await getUsage(id);
+    } catch (err) {
+        setStatus("ud-dialog-status",
+            describeError(err, "출고 이력을 불러오지 못했습니다."), "error");
+        return;
+    }
+    if (!fresh) {
+        setStatus("ud-dialog-status",
+            "이 기록을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.", "error");
+        return;
+    }
+
+    // 자재가 연결된 기록이면 그 자재의 카테고리로 부품 목록을 미리 좁혀서 보여줍니다.
+    const mat = fresh.material_id != null ? materials.find((m) => m.id === fresh.material_id) : null;
+    fillDialogCategoryOptions(mat ? mat["카테고리"] : "전체");
+    fillDialogPartOptions();
+    fillDialogSourceOptions(fresh.manager);
+
+    el("ud-date").value = fresh.occurred_on ?? "";
+    el("ud-part").value = fresh.material_id ?? "";
+    el("ud-source").value = fresh.manager ?? "";
+    el("ud-qty").value = fresh.quantity ?? 1;
+    el("ud-equipment").value = fresh.equipment_id ?? "";
+    el("ud-problem").value = fresh.problem ?? "";
+    el("ud-action").value = fresh.action_taken ?? "";
+    el("ud-part-memo").value = fresh.part_memo ?? "";
+    el("ud-note").value = fresh.note ?? "";
+
+    // 반납이 등록된 건은 손댈 수 없습니다. 재고가 여러 번 오가며 꼬이는 것을 막습니다.
+    if (fresh.hasRepairReturn) {
+        setStatus("ud-dialog-status",
+            "이 출고는 수리 반납이 등록되어 있어 고칠 수 없습니다. "
+            + "수리 관리에서 반납을 먼저 취소하세요.", "error");
+        openUsage = fresh;
+        return;   // 버튼을 잠근 채로 둡니다
+    }
+
+    // 2026-07 이관분은 자재가 연결돼 있지 않습니다. 자재를 지정하면 그때부터 재고가 빠집니다.
+    if (fresh.material_id == null) {
+        setStatus("ud-dialog-status",
+            "이 기록은 자재가 연결돼 있지 않습니다. 자재를 지정하면 그 자재의 "
+            + "재고에서 빠집니다. 비워 두면 재고는 그대로입니다.");
+    } else {
+        setStatus("ud-dialog-status", "");
+    }
+
+    el("ud-save-btn").disabled = false;
+    el("ud-delete-confirm").disabled = false;
+    openUsage = fresh;
+    updateStockHint();
+}
+
+
+function initUsageDialog() {
+    el("ud-dialog-close").addEventListener("click", () => {
+        if (busyUsage) return;
+        el("usage-dialog").close();
+        openUsage = null;
+    });
+    // Esc 키도 같은 이유로 막습니다. ✕ 버튼만 잠그면 Esc로 빠져나갈 수 있습니다.
+    el("usage-dialog").addEventListener("cancel", (e) => {
+        if (busyUsage) e.preventDefault();
+    });
+
+    el("ud-category").addEventListener("change", () => {
+        fillDialogPartOptions();
+        updateStockHint();
+    });
+    for (const id of ["ud-part", "ud-source"]) {
+        el(id).addEventListener("change", updateStockHint);
+    }
+    // 수량은 change보다 input이 더 자주 불려서(끄는 즉시 반영) input 하나만 씁니다.
+    el("ud-qty").addEventListener("input", updateStockHint);
+
+    el("usage-dialog-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!openUsage) return;
+        const target = openUsage;          // ⚠️ await 전에 읽어둡니다 (565a3f2 회귀 재발 방지)
+        const values = {
+            occurred_on: el("ud-date").value,
+            material_id: el("ud-part").value ? Number(el("ud-part").value) : null,
+            quantity: Number(el("ud-qty").value),
+            manager: el("ud-source").value,
+            equipment_id: el("ud-equipment").value || null,
+            problem: el("ud-problem").value || null,
+            action_taken: el("ud-action").value || null,
+            part_memo: el("ud-part-memo").value || null,
+            note: el("ud-note").value || null,
+        };
+
+        if (!values.manager) {
+            setStatus("ud-dialog-status", "자재 출처를 선택해주세요.", "error");
+            return;
+        }
+        // 자재는 조건부 필수입니다: 원래 자재가 연결돼 있던 기록에서 비운 채 저장하는 것만
+        // 막습니다. 2026-07 이관분처럼 원래 자재가 없던 기록은 비워 둔 채 저장할 수 있어야
+        // 설비ID 오타 등을 자재 지정 없이 고칠 수 있습니다.
+        if (target.material_id != null && !values.material_id) {
+            setStatus("ud-dialog-status",
+                "이미 자재가 연결된 기록입니다. 부품을 비운 채로 저장할 수 없습니다.", "error");
+            return;
+        }
+
+        setUsageBusy(true);
+        setStatus("ud-dialog-status", "저장하는 중...");
+        try {
+            await updateUsage(target.id, values);
+        } catch (err) {
+            setStatus("ud-dialog-status", describeError(err, "저장하지 못했습니다."), "error");
+            setUsageBusy(false);
+            return;
+        }
+
+        // 저장은 이미 끝났습니다. 감사 로그가 실패해도 저장을 되돌리지 않고, "저장은 됐지만
+        // 기록은 못 남겼다"고 사실대로 알립니다(materials.js의 saveMaterial과 같은 방식).
+        const warnings = [];
+        try {
+            await insertAuditLog(currentEmail, "출고이력 수정", values.material_id,
+                target.part_name, target, values);
+        } catch (err) {
+            warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
+        }
+
+        el("usage-dialog").close();
+        openUsage = null;
+        setUsageBusy(false);
+        await load(true);
+        setStatus("usage-status",
+            warnings.length ? `출고 이력을 고쳤습니다.\n\n다만: ${warnings.join("\n다만: ")}` : "출고 이력을 고쳤습니다.",
+            warnings.length ? "warn" : "ok");
+    });
+
+    el("ud-delete-confirm").addEventListener("change", () => {
+        // 처리 중에는 손대지 않습니다. setUsageBusy가 잠가둔 삭제 버튼이 체크 한 번으로
+        // 되살아나면 잠금을 만든 의미가 없어집니다.
+        if (busyUsage) return;
+        el("ud-delete-btn").disabled = !el("ud-delete-confirm").checked;
+    });
+
+    el("ud-delete-btn").addEventListener("click", async () => {
+        if (!openUsage) return;
+        const target = openUsage;          // ⚠️ await 전에 읽어둡니다
+        setUsageBusy(true);
+        setStatus("ud-dialog-status", "지우는 중...");
+        try {
+            await deleteUsage(target.id);
+        } catch (err) {
+            setStatus("ud-dialog-status", describeError(err, "지우지 못했습니다."), "error");
+            setUsageBusy(false);
+            return;
+        }
+
+        const warnings = [];
+        try {
+            await insertAuditLog(currentEmail, "출고이력 삭제", target.material_id,
+                target.part_name, target, null);
+        } catch (err) {
+            warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
+        }
+
+        el("usage-dialog").close();
+        openUsage = null;
+        setUsageBusy(false);
+        await load(true);
+        setStatus("usage-status",
+            warnings.length ? `출고 이력을 지웠습니다.\n\n다만: ${warnings.join("\n다만: ")}` : "출고 이력을 지웠습니다.",
+            warnings.length ? "warn" : "ok");
+    });
+}
+
+
 export function init(jumpToBoq) {
     onJumpToBoq = jumpToBoq;
+    initUsageDialog();
 
     document.getElementById("usage-excel-btn").addEventListener("click", async () => {
         await downloadTableExcel(TABLE_ID, COLUMNS, "사용이력.xlsx");

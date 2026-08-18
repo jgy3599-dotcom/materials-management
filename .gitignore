@@ -6,3 +6,6 @@ electric_category_duplicates.txt
 streamlit_run.log
 # Playwright가 받아둔 브라우저 (개발용, 저장소에 올릴 필요 없음)
 ms-playwright/
+
+# superpowers 작업 흔적 (진행 기록·브리프·리뷰 자료). 저장소에 올릴 필요 없습니다.
+.superpowers/

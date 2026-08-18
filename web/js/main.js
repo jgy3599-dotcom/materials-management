@@ -106,7 +106,7 @@ function render(session) {
         materialsPage.setUser(session, isAdmin(session), isSuperAdmin(session));
         purchasePage.setUser(session, isAdmin(session));
         registerPage.setUser(session, isAdmin(session));
-        usagePage.setUser(session);
+        usagePage.setUser(session, isAdmin(session));
         repairsPage.setUser(session);
         show(appView);
         goToPage(currentPage);   // 요약은 goToPage가 함께 갱신합니다
@@ -118,7 +118,7 @@ function render(session) {
         // 입력 폼이 있는 화면은 로그아웃 시점에 비웁니다. 일반 사용자는 공용 계정 하나를
         // 함께 쓰기 때문에, 다음 사람이 같은 계정으로 들어와도 앞사람이 골라둔 것이
         // 남아 있으면 안 됩니다(로그인 때만 비우면 이메일이 같아 그냥 지나갑니다).
-        usagePage.setUser(null);
+        usagePage.setUser(null, false);
         repairsPage.setUser(null);
         // 등록·구매요청은 권한도 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
         registerPage.setUser(null, false);

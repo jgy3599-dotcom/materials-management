@@ -539,6 +539,60 @@
         <p class="caption hidden" id="mat-dialog-status"></p>
     </dialog>
 
+    <!-- 출고 이력 수정/삭제 팝업. 사용이력에서 행을 두 번 클릭하면 열립니다(관리자만). -->
+    <dialog id="usage-dialog" class="dialog-wide">
+        <div class="dialog-head">
+            <h2 style="margin:0">출고 이력 수정 / 삭제</h2>
+            <button class="secondary" id="ud-dialog-close">✕</button>
+        </div>
+
+        <form id="usage-dialog-form">
+            <div class="form-grid">
+                <div>
+                    <label for="ud-date">일자</label>
+                    <input type="date" id="ud-date">
+                    <label for="ud-category">카테고리로 좁히기</label>
+                    <select id="ud-category"></select>
+                    <label for="ud-part">부품명(규격)</label>
+                    <select id="ud-part"></select>
+                    <label for="ud-source">자재 출처</label>
+                    <select id="ud-source"></select>
+                    <label for="ud-qty">수량</label>
+                    <input type="number" id="ud-qty" min="1">
+                </div>
+                <div>
+                    <label for="ud-equipment">설비ID</label>
+                    <input type="text" id="ud-equipment">
+                    <label for="ud-problem">문제</label>
+                    <input type="text" id="ud-problem">
+                    <label for="ud-action">조치</label>
+                    <input type="text" id="ud-action">
+                    <label for="ud-part-memo">부품메모</label>
+                    <input type="text" id="ud-part-memo">
+                    <label for="ud-note">비고</label>
+                    <input type="text" id="ud-note">
+                </div>
+            </div>
+
+            <p class="caption" id="ud-stock-hint"></p>
+            <button type="submit" id="ud-save-btn" style="width:100%; margin-top:12px" disabled>수정 저장</button>
+        </form>
+
+        <hr>
+        <details id="ud-delete-details">
+            <summary>이 출고 이력 삭제</summary>
+            <p class="caption">
+                삭제하면 재고와 딸린 수리 건도 DB가 함께 되돌립니다.
+            </p>
+            <label class="checkbox-line">
+                <input type="checkbox" id="ud-delete-confirm" disabled> 삭제하겠습니다
+            </label>
+            <button id="ud-delete-btn" style="width:100%; margin-top:8px" disabled>삭제</button>
+        </details>
+
+        <p class="caption hidden" id="ud-dialog-status"></p>
+    </dialog>
+
     <script type="module" src="js/main.js"></script>
 </body>
 </html>

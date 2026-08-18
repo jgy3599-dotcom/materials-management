@@ -120,7 +120,7 @@ export async function getMaterials() {
 //  그쪽은 계속 getMaterials()를 씁니다.)
 export async function getMaterialOptions() {
     const rows = await fetchAllRows((opts) =>
-        supabase.from("materials").select("id, category, part_name, warehouse_no", opts).order("id"));
+        supabase.from("materials").select("id, category, part_name, warehouse_no, current_qty", opts).order("id"));
 
     // 이름을 MATERIAL_LABELS로 돌려 붙이지 않고 하나씩 적습니다. 그 표는 "화면에 보여줄
     // 한글 이름"이라 id만 예외로 자기 자신을 가리키는데, 나중에 누가 그 줄을 군더더기로
@@ -130,6 +130,7 @@ export async function getMaterialOptions() {
         "카테고리": row.category,
         "부품명(규격)": row.part_name,
         "창고번호": row.warehouse_no,
+        "현재재고": row.current_qty,
     }));
 }
 
@@ -255,13 +256,15 @@ export async function getUsageHistory() {
         supabase
             .from("history")
             .select(
-                "occurred_on, quantity, manager, equipment_id, problem, action_taken, part_memo, note, materials(part_name)",
+                "id, material_id, occurred_on, quantity, manager, equipment_id, problem, action_taken, part_memo, note, materials(part_name)",
                 opts,
             )
             .eq("direction", "출고")
             .order("id"));
 
     return rows.map((row) => ({
+        id: row.id,
+        material_id: row.material_id,
         일자: row.occurred_on,
         ...historyPartName(row),
         수량: row.quantity,
@@ -271,6 +274,60 @@ export async function getUsageHistory() {
         조치: row.action_taken,
         비고: row.note,
     }));
+}
+
+
+// 출고 이력 한 건을 다시 읽습니다. 팝업을 열 때 씁니다.
+// 딸린 수리 건과 그 반납까지 같이 가져와, 반납이 있으면 화면에서 수정을 잠급니다.
+export async function getUsage(id) {
+    const { data, error } = await supabase
+        .from("history")
+        .select("*, materials(part_name), repairs(id, repair_returns(id))")
+        .eq("id", id)
+        .maybeSingle();
+    if (error) throw error;
+    if (!data) return null;
+
+    const returned = (data.repairs ?? []).some((r) => (r.repair_returns ?? []).length > 0);
+    return {
+        id: data.id,
+        occurred_on: data.occurred_on,
+        material_id: data.material_id,
+        part_name: data.materials?.part_name ?? null,
+        quantity: data.quantity,
+        manager: data.manager,
+        equipment_id: data.equipment_id,
+        problem: data.problem,
+        action_taken: data.action_taken,
+        part_memo: data.part_memo,
+        note: data.note,
+        hasRepairReturn: returned,
+    };
+}
+
+
+// 출고 이력을 고칩니다. 재고와 수리 건은 DB 함수가 함께 처리합니다.
+export async function updateUsage(id, v) {
+    const { error } = await supabase.rpc("update_usage", {
+        p_id: id,
+        p_occurred_on: v.occurred_on,
+        p_material_id: v.material_id,
+        p_quantity: v.quantity,
+        p_manager: v.manager,
+        p_note: v.note,
+        p_equipment_id: v.equipment_id,
+        p_problem: v.problem,
+        p_action_taken: v.action_taken,
+        p_part_memo: v.part_memo,
+    });
+    if (error) throw error;
+}
+
+
+// 출고 이력을 지웁니다. 재고 원복과 수리 건 삭제도 DB 함수가 함께 합니다.
+export async function deleteUsage(id) {
+    const { error } = await supabase.rpc("delete_usage", { p_id: id });
+    if (error) throw error;
 }
 
 

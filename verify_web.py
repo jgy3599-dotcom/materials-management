@@ -152,6 +152,21 @@ def main():
             real_parts = page.locator("#usage-part option:not([value=''])").count()
             check("출고 등록 폼의 부품 선택칸이 채워진다", real_parts > 0, f"{real_parts}개")
 
+            # 관리자만 열립니다. 한 번 클릭은 BOQ 이동이라 두 번 클릭과 구분됩니다.
+            page.click("#usage-table .tabulator-row")
+            check("한 번만 누르면 수정 팝업이 열리지 않는다",
+                  not page.locator("#usage-dialog[open]").count())
+            page.dblclick("#usage-table .tabulator-row")
+            page.wait_for_selector("#usage-dialog[open]", timeout=15000)
+            check("행을 두 번 누르면 수정 팝업이 열린다", True)
+            page.wait_for_function(
+                "document.querySelectorAll('#ud-part option').length > 0", timeout=15000)
+            check("팝업의 부품 선택칸이 채워진다",
+                  page.locator("#ud-part option").count() > 0)
+            check("삭제 버튼은 확인 전까지 잠겨 있다",
+                  page.locator("#ud-delete-btn").is_disabled())
+            page.click("#ud-dialog-close")
+
             print("\n[6] 구매 요청")
             page.click('.nav-btn[data-page="purchase"]')
             page.wait_for_selector("#page-purchase:not(.hidden)", timeout=20000)
