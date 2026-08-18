@@ -353,6 +353,24 @@ create index idx_repair_returns_repair_id on repair_returns (repair_id);
 
 -- (1) 사용(출고) 등록: 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성.
 --     p_deduct_stock은 앱의 MATERIAL_SOURCES 판정 결과입니다(한진 SPARE/한진 구매품만 true).
+-- 이 자재 출처가 현재재고를 깎는 대상인지 판단합니다.
+--
+-- ⚠️ 같은 규칙이 화면에도 있습니다 — web/js/pages/usage.js 의 MATERIAL_SOURCES.
+--    출고 등록은 화면이 넘기는 p_deduct_stock 을 따르고, 출고 수정·삭제는 이 함수를
+--    씁니다. 한쪽만 고치면 등록과 수정이 서로 다르게 동작해 재고가 조용히 어긋납니다.
+--    이 규칙은 두 번 뒤집혔던 이력이 있습니다(시스템_규칙과_배경.md 1절).
+--    바꾸려면 그 기록을 먼저 볼 것.
+create or replace function usage_deducts_stock(p_manager text)
+returns boolean
+language sql
+immutable
+as $$
+    select p_manager in ('한진 SPARE', '한진 구매품');
+$$;
+
+grant execute on function usage_deducts_stock(text) to authenticated;
+
+
 create or replace function register_usage(
     p_occurred_on date,
     p_material_id bigint,
@@ -619,3 +637,14 @@ grant execute on function add_repair_return(bigint, integer, date, text, text) t
 alter table repairs add column if not exists history_id bigint
     references history (id) on delete set null;
 create index if not exists idx_repairs_history_id on repairs (history_id);
+
+-- 2026-08-18 : 재고 차감 규칙을 DB에도 두기 (출고 수정·삭제가 옛 출처를 판단해야 함)
+create or replace function usage_deducts_stock(p_manager text)
+returns boolean
+language sql
+immutable
+as $$
+    select p_manager in ('한진 SPARE', '한진 구매품');
+$$;
+
+grant execute on function usage_deducts_stock(text) to authenticated;
