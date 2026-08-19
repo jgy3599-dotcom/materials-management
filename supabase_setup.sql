@@ -352,13 +352,15 @@ create index idx_repair_returns_repair_id on repair_returns (repair_id);
 -- ============================================================================
 
 -- (1) 사용(출고) 등록: 이력 기록 + (한진 소유 자재면) 재고 차감 + 수리 건 생성.
---     p_deduct_stock은 앱의 MATERIAL_SOURCES 판정 결과입니다(한진 SPARE/한진 구매품만 true).
+--     차감 여부는 아래 usage_deducts_stock(p_manager)으로 DB가 스스로 판단합니다.
+--     p_deduct_stock 인자는 옛 화면과의 호환을 위해 남겨두었을 뿐 쓰지 않습니다.
 -- 이 자재 출처가 현재재고를 깎는 대상인지 판단합니다.
 --
--- ⚠️ 같은 규칙이 화면에도 있습니다 — web/js/pages/usage.js 의 MATERIAL_SOURCES.
---    출고 등록은 화면이 넘기는 p_deduct_stock 을 따르고, 출고 수정·삭제는 이 함수를
---    씁니다. 한쪽만 고치면 등록과 수정이 서로 다르게 동작해 재고가 조용히 어긋납니다.
---    이 규칙은 두 번 뒤집혔던 이력이 있습니다(시스템_규칙과_배경.md 1절).
+-- 등록·수정·삭제가 모두 이 함수 하나를 씁니다. 화면(web/js/pages/usage.js 의
+-- MATERIAL_SOURCES)에도 같은 규칙이 있지만 그건 안내 문구를 만들 때만 쓰고,
+-- 재고를 실제로 움직이는 판단은 전부 여기서 합니다.
+--
+-- ⚠️ 이 규칙은 두 번 뒤집혔던 이력이 있습니다(시스템_규칙과_배경.md 1절).
 --    바꾸려면 그 기록을 먼저 볼 것.
 create or replace function usage_deducts_stock(p_manager text)
 returns boolean
@@ -381,6 +383,8 @@ create or replace function register_usage(
     p_problem text,
     p_action_taken text,
     p_part_memo text,
+    -- ⚠️ 더 이상 쓰지 않습니다. 지우면 함수 이름이 바뀌는 셈이라, 캐시된 옛 화면을 쓰는
+    --    사람은 출고 등록이 통째로 막힙니다. 그래서 인자만 남겨둡니다.
     p_deduct_stock boolean
 ) returns void
 language plpgsql
@@ -402,7 +406,11 @@ begin
             p_equipment_id, p_problem, p_action_taken, p_part_memo)
     returning id into v_history_id;
 
-    if p_deduct_stock then
+    -- ⚠️ 화면이 넘긴 p_deduct_stock 을 믿지 않고 출처로 직접 판단합니다. 이 RPC는
+    -- 로그인한 사람 누구나 부를 수 있어서, p_manager='한진 SPARE' 인데 p_deduct_stock=false
+    -- 로 호출하면 재고를 안 깎은 출고 행이 남습니다. 나중에 delete_usage 가 그 행을 지우면서
+    -- 깎은 적 없는 수량을 재고에 더합니다(수리 건도 없으니 가드에도 안 걸립니다).
+    if usage_deducts_stock(p_manager) then
         update materials set current_qty = current_qty - p_quantity where id = p_material_id;
 
         -- history_id를 같이 넣어야 나중에 이 출고를 고치거나 지울 때 이 수리 건을 찾습니다.
@@ -809,3 +817,13 @@ grant execute on function usage_deducts_stock(text) to authenticated;
 -- 2026-08-18 : 출고 이력 삭제 (delete_usage)
 -- 위쪽 update_usage 다음에 있는 "create or replace function delete_usage(" 부터
 -- "grant execute on function delete_usage(bigint) to authenticated;" 까지를 복사해 실행하세요.
+
+-- 2026-08-19 : 출고 등록도 재고 차감 규칙을 DB가 판단하게 (리뷰 지적)
+-- register_usage 가 화면이 넘긴 p_deduct_stock 을 믿고 있었습니다. 이 RPC는 로그인한
+-- 사람 누구나 직접 부를 수 있어서, p_manager='한진 SPARE' 인데 p_deduct_stock=false 로
+-- 부르면 재고를 안 깎은 출고 행이 남고, 나중에 delete_usage 가 그 행을 지우면서 깎은 적
+-- 없는 수량을 재고에 더합니다. 이제 usage_deducts_stock(p_manager) 으로 판단합니다.
+--
+-- 위쪽 "create or replace function register_usage(" 부터 그 아래
+-- "grant execute on function register_usage(...) to authenticated;" 까지를 복사해
+-- 실행하세요. 이름과 인자는 그대로라 캐시된 옛 화면도 계속 동작합니다.

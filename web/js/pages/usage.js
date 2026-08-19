@@ -377,7 +377,12 @@ function fillDialogPartOptions() {
 // 목록 맨 끝에 끼워 넣습니다. 안 그러면 선택칸이 빈 채로 열려서, 손대지 않고 저장해도
 // 출처가 조용히 지워집니다.
 function fillDialogSourceOptions(currentValue) {
-    const options = [...Object.keys(MATERIAL_SOURCES), CUSTOM_SOURCE];
+    // ⚠️ 등록 폼과 달리 '직접 입력'을 넣지 않습니다. 이 창에는 출처를 적을 텍스트 칸이
+    // 없어서(등록 폼의 usage-custom-source 같은 것), 고르면 '직접 입력'이라는 글자가
+    // 그대로 자재 출처로 저장됩니다. 게다가 원래 '한진 SPARE'였다면 재고가 원복되고
+    // 수리 건까지 지워집니다 — 출처는 뜻 없는 값이 된 채로.
+    // 이미 직접 입력으로 저장된 기록은 아래 currentValue 처리로 목록에 남습니다.
+    const options = Object.keys(MATERIAL_SOURCES);
     const all = currentValue && !options.includes(currentValue) ? [...options, currentValue] : options;
     refill(el("ud-source"),
         [`<option value="">출처를 선택하세요</option>`,
@@ -454,7 +459,14 @@ function updateStockHint() {
             + (now == null ? "" : ` (${now} → ${after})`)
             + (after != null && after < 0 ? "  ⚠️ 음수가 됩니다" : ""));
     }
-    if (oldDeduct && !newDeduct) lines.push("수리 관리에서 이 건이 사라집니다.");
+    // ⚠️ 출처만 보고 짐작하면 안 됩니다. 2026-07 이관분과 2026-08-18에 넣은 211건은
+    // 한진 출처인데 수리 건이 없어서(history에 직접 넣었기 때문), 출처를 '보우'로 바꾸면
+    // 있지도 않은 수리 건이 사라진다고 알리게 됩니다. update_usage의 분기와 똑같이 맞춥니다.
+    if (openUsage.hasRepair && !newDeduct) {
+        lines.push("수리 관리에서 이 건이 사라집니다.");
+    } else if (!openUsage.hasRepair && newDeduct && !oldDeduct && newMatId != null) {
+        lines.push("수리 관리에 새로 등록됩니다.");
+    }
 
     el("ud-stock-hint").textContent =
         lines.length ? `저장하면: ${lines.join(" / ")}` : "재고는 바뀌지 않습니다.";

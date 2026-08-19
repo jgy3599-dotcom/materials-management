@@ -152,20 +152,28 @@ def main():
             real_parts = page.locator("#usage-part option:not([value=''])").count()
             check("출고 등록 폼의 부품 선택칸이 채워진다", real_parts > 0, f"{real_parts}개")
 
-            # 관리자만 열립니다. 한 번 클릭은 BOQ 이동이라 두 번 클릭과 구분됩니다.
+            # 수정 팝업은 관리자만 열립니다. 한 번 클릭은 BOQ 이동이라 두 번 클릭과 구분됩니다.
+            # ⚠️ 권한으로 갈라야 합니다. 일반 계정으로 돌리면 팝업이 아예 안 열리는 게
+            #    정상인데, 그냥 기다리면 15초 뒤 예외가 나서 [6] 이후 검사가 통째로
+            #    실행되지 않습니다. 위 자재 화면 블록과 같은 방식으로 나눕니다.
             page.click("#usage-table .tabulator-row")
             check("한 번만 누르면 수정 팝업이 열리지 않는다",
                   not page.locator("#usage-dialog[open]").count())
             page.dblclick("#usage-table .tabulator-row")
-            page.wait_for_selector("#usage-dialog[open]", timeout=15000)
-            check("행을 두 번 누르면 수정 팝업이 열린다", True)
-            page.wait_for_function(
-                "document.querySelectorAll('#ud-part option').length > 0", timeout=15000)
-            check("팝업의 부품 선택칸이 채워진다",
-                  page.locator("#ud-part option").count() > 0)
-            check("삭제 버튼은 확인 전까지 잠겨 있다",
-                  page.locator("#ud-delete-btn").is_disabled())
-            page.click("#ud-dialog-close")
+            if role == "관리자":
+                page.wait_for_selector("#usage-dialog[open]", timeout=15000)
+                check("행을 두 번 누르면 수정 팝업이 열린다", True)
+                page.wait_for_function(
+                    "document.querySelectorAll('#ud-part option').length > 0", timeout=15000)
+                check("팝업의 부품 선택칸이 채워진다",
+                      page.locator("#ud-part option").count() > 0)
+                check("삭제 버튼은 확인 전까지 잠겨 있다",
+                      page.locator("#ud-delete-btn").is_disabled())
+                page.click("#ud-dialog-close")
+            else:
+                page.wait_for_timeout(1000)
+                check("관리자가 아니면 두 번 눌러도 수정 팝업이 열리지 않는다",
+                      not page.locator("#usage-dialog[open]").count())
 
             print("\n[6] 구매 요청")
             page.click('.nav-btn[data-page="purchase"]')
@@ -180,14 +188,16 @@ def main():
             #    (공용 계정에서 앞사람 입력이 남지 않게 하려고 일부러 넣은 동작).
             #    그래서 헤더만 기다리고 바로 아래 둘을 보면 아직 안 채워져 있어
             #    멀쩡한 화면인데도 실패로 잡힙니다. 각각 따로 기다려야 합니다.
+            # 사용이력 쪽과 같은 이유로 빈 항목은 빼고 셉니다. 구매요청 부품칸에도
+            # "부품을 선택하세요"가 생겨서, 그것까지 세면 자재를 하나도 못 불러와도 통과합니다.
             try:
                 page.wait_for_function(
-                    "document.querySelectorAll('#pr-part option').length > 0",
+                    "document.querySelectorAll(\"#pr-part option:not([value=''])\").length > 0",
                     timeout=25000)
             except Exception:
                 pass
-            check("부품 선택칸이 채워진다", page.locator("#pr-part option").count() > 0,
-                  f"{page.locator('#pr-part option').count()}개")
+            pr_parts = page.locator("#pr-part option:not([value=''])").count()
+            check("부품 선택칸이 채워진다", pr_parts > 0, f"{pr_parts}개")
             try:
                 page.wait_for_selector("#purchase-history-table .tabulator-header",
                                        timeout=25000)

@@ -302,6 +302,9 @@ export async function getUsage(id) {
         part_memo: data.part_memo,
         note: data.note,
         hasRepairReturn: returned,
+        // 수리 건이 붙어 있는지. 저장하면 수리 관리가 어떻게 바뀌는지 미리 알려줄 때 씁니다.
+        // 이관분처럼 한진 출처인데 수리 건이 없는 기록이 많아서, 출처만 보고 짐작하면 안 됩니다.
+        hasRepair: (data.repairs ?? []).length > 0,
     };
 }
 

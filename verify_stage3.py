@@ -188,9 +188,14 @@ def main():
             "material_id", mid).execute().data
         hist = client.table("history").select("id").eq(
             "material_id", mid).eq("direction", "출고").execute().data
-        check("수리 건에 출고 이력 번호가 들어갔다",
-              hist[0]["id"] if hist else None,
-              rep[0]["history_id"] if rep else None)
+        # ⚠️ 둘 다 비면 None == None 으로 통과해버립니다. 확인한 게 없는데 "확인했다"는
+        #    신호를 주므로, 조회가 비었으면 그 사실을 그대로 실패로 적습니다.
+        if not hist or not rep:
+            check_true("수리 건에 출고 이력 번호가 들어갔다", False,
+                       f"조회가 비었습니다 (출고 {len(hist)}건 / 수리 {len(rep)}건)")
+        else:
+            check("수리 건에 출고 이력 번호가 들어갔다",
+                  hist[0]["id"], rep[0]["history_id"])
 
         # ---------- 2 ----------
         print("\n[2] 출고 등록 - 출처 '보우' 2개 (이력만 남고 재고는 그대로여야 함)")
