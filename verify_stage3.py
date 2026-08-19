@@ -506,15 +506,15 @@ def main():
                 "관리자만 출고 이력을 고칠 수 있습니다")
 
         print("  [10-4] 수리 반납이 등록된 건 (수정이 거부돼야 함)")
-        # ⚠️ 위 hid는 쓸 수 없습니다. [10-2]에서 출처를 보우로 바꾸며 수리 건이 지워졌고,
-        #    [10-3]에서 다시 한진으로 되돌려도 수리 건은 안 돌아옵니다("없으면 새로 만들지
-        #    않는다"는 규칙 때문). 그래서 반납을 걸 수리 건이 없습니다.
-        #    반납 검사는 수리 건이 살아 있는 새 출고로 해야 합니다.
+        # 위 hid를 쓰지 않고 새 출고를 하나 더 만듭니다. hid는 [10-1]~[10-7]에서 출처와
+        # 자재를 여러 번 갈아탄 상태라, 반납까지 걸면 뒤에 오는 검사가 무엇 때문에
+        # 실패했는지 가려내기 어렵습니다.
+        # ⚠️ p_send_to_repair를 True로 보내야 수리 건이 생깁니다(2026-08-19부터).
         client.rpc("register_usage", {
             "p_occurred_on": TODAY, "p_material_id": mid_b, "p_quantity": 1,
             "p_manager": "한진 구매품", "p_note": "반납검증", "p_equipment_id": "TEST-EQ",
             "p_problem": "반납검증", "p_action_taken": None, "p_part_memo": None,
-            "p_deduct_stock": True,
+            "p_deduct_stock": True, "p_send_to_repair": True,
         }).execute()
         held = one_row(
             client.table("history").select("id").eq("material_id", mid_b)
@@ -549,7 +549,7 @@ def main():
             "p_occurred_on": TODAY, "p_material_id": mid_b, "p_quantity": 2,
             "p_manager": "한진 SPARE", "p_note": "삭제검증", "p_equipment_id": "TEST-EQ",
             "p_problem": "삭제검증", "p_action_taken": None, "p_part_memo": None,
-            "p_deduct_stock": True,
+            "p_deduct_stock": True, "p_send_to_repair": True,
         }).execute()
         dtar = one_row(
             client.table("history").select("id").eq("material_id", mid_b)
