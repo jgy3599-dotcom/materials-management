@@ -226,6 +226,13 @@ export function setUser(session, admin) {
     // 앞사람 때 받아온 자재 목록도 버립니다. 남겨두면 뒤이은 다시 읽기가 실패했을 때,
     // 빨간 오류가 뜬 화면에서 앞사람 시점의 목록으로 등록을 시도할 수 있습니다.
     materials = [];
+    // 표도 비웁니다(materials.js·purchase.js와 같은 이유). 위의 loaded=false는 "다음에
+    // 다시 읽어라"일 뿐이라, 그 읽기가 실패하거나 4천 건을 읽는 동안에는 관리자 때 그려진
+    // 표가 행 두 번 클릭(수정/삭제 팝업)째로 남습니다. history의 select는 로그인한 사람
+    // 전체에게 열려 있어서 팝업이 열리고, '수정 저장'까지 눌러 update_usage가 던지는
+    // 날것의 "관리자만 출고 이력을 고칠 수 있습니다."를 보게 됩니다.
+    renderTable(TABLE_ID, [], COLUMNS);
+    document.getElementById("usage-count").textContent = "";
     // 폼을 비우면 카테고리·출처가 첫 항목으로 돌아갑니다. 선택지를 다시 채워서 카테고리
     // 목록과 부품 목록·건수, 안내 문구, '직접 입력' 칸을 거기에 맞춥니다. 카테고리도 같이
     // 채워야, 다시 읽기가 실패했을 때 앞사람 카테고리만 남아 골라도 0건인 화면이 안 됩니다.
@@ -561,6 +568,11 @@ function initUsageDialog() {
         e.preventDefault();
         if (!openUsage) return;
         const target = openUsage;          // ⚠️ await 전에 읽어둡니다 (565a3f2 회귀 재발 방지)
+        // 같은 이유로 감사 로그에 쓸 사람과 "지금 이 사람" 표시도 await 전에 잡아둡니다.
+        // 저장을 기다리는 사이 세션이 만료되면 setUser가 currentEmail을 비우고, 다른
+        // 사람이 로그인하면 관리자가 한 수정이 뒷사람 이름으로 기록됩니다(register.js:93과 같은 처리).
+        const actorEmail = currentEmail;
+        const myUserKey = lastUserKey;
         const values = {
             occurred_on: el("ud-date").value,
             material_id: el("ud-part").value ? Number(el("ud-part").value) : null,
@@ -600,11 +612,16 @@ function initUsageDialog() {
         // 기록은 못 남겼다"고 사실대로 알립니다(materials.js의 saveMaterial과 같은 방식).
         const warnings = [];
         try {
-            await insertAuditLog(currentEmail, "출고이력 수정", values.material_id,
+            await insertAuditLog(actorEmail, "출고이력 수정", values.material_id,
                 target.part_name, target, values);
         } catch (err) {
             warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
         }
+
+        // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 수정 자체는 이미 끝났고, 아래의
+        // 팝업 닫기·다시 읽기·초록 안내는 지금 화면을 보고 있는 사람의 것이 아닙니다
+        // (purchase.js·register.js에 넣은 것과 같은 가드).
+        if (lastUserKey !== myUserKey) return;
 
         el("usage-dialog").close();
         openUsage = null;
@@ -625,6 +642,8 @@ function initUsageDialog() {
     el("ud-delete-btn").addEventListener("click", async () => {
         if (!openUsage) return;
         const target = openUsage;          // ⚠️ await 전에 읽어둡니다
+        const actorEmail = currentEmail;   // 저장 경로와 같은 이유 (감사 로그가 뒷사람 이름으로 남음)
+        const myUserKey = lastUserKey;
         setUsageBusy(true);
         setStatus("ud-dialog-status", "지우는 중...");
         try {
@@ -637,11 +656,14 @@ function initUsageDialog() {
 
         const warnings = [];
         try {
-            await insertAuditLog(currentEmail, "출고이력 삭제", target.material_id,
+            await insertAuditLog(actorEmail, "출고이력 삭제", target.material_id,
                 target.part_name, target, null);
         } catch (err) {
             warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
         }
+
+        // 저장 경로와 같은 가드입니다.
+        if (lastUserKey !== myUserKey) return;
 
         el("usage-dialog").close();
         openUsage = null;
