@@ -322,6 +322,9 @@ export async function updateUsage(id, v) {
         p_problem: v.problem,
         p_action_taken: v.action_taken,
         p_part_memo: v.part_memo,
+        // 체크하면 수리 건을 만들고, 풀면 지웁니다. 화면은 늘 true/false를 보냅니다
+        // (DB에서 null은 "수리 건을 건드리지 말라"는 뜻이라 옛 화면 전용입니다).
+        p_send_to_repair: v.send_to_repair,
     });
     if (error) throw error;
 }
@@ -350,6 +353,9 @@ export async function registerUsage(params) {
         p_action_taken: params.actionTaken || null,
         p_part_memo: params.partMemo || null,
         p_deduct_stock: params.deductStock,
+        // 빼낸 고장품을 수리 보냈는지. 이 값이 true일 때만 수리 건이 만들어집니다.
+        // 재고 차감은 이 값과 무관하게 자재 출처로만 정해집니다.
+        p_send_to_repair: params.sendToRepair,
     });
     if (error) throw error;
 }

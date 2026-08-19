@@ -187,6 +187,12 @@
                         </div>
                         <p class="caption" id="usage-source-hint"></p>
 
+                        <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+                            <input type="checkbox" id="usage-repair" style="width:auto; margin:0">
+                            <span>빼낸 고장품을 수리 보냄 (수리 관리에 등록)</span>
+                        </label>
+                        <p class="caption" id="usage-repair-hint"></p>
+
                         <div class="form-grid">
                             <div>
                                 <label for="usage-equipment">설비 ID (예: LD451 RK003)</label>
@@ -573,6 +579,11 @@
                     <input type="text" id="ud-note">
                 </div>
             </div>
+
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:8px">
+                <input type="checkbox" id="ud-repair" style="width:auto; margin:0">
+                <span>빼낸 고장품을 수리 보냄 (수리 관리에 등록)</span>
+            </label>
 
             <p class="caption" id="ud-stock-hint"></p>
             <button type="submit" id="ud-save-btn" style="width:100%; margin-top:12px" disabled>수정 저장</button>

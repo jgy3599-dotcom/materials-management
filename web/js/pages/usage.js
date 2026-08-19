@@ -95,6 +95,17 @@ function updateSourceHint() {
 
     custom.classList.toggle("hidden", source !== CUSTOM_SOURCE);
 
+    // "수리 보냄"은 재고를 깎는 출처일 때만 쓸 수 있습니다. 보우·POSCO·BEUMER 자재는
+    // 재고를 안 깎으니, 나중에 반납해도 되돌릴 재고가 없어 수리로 관리할 의미가 없습니다.
+    // 껐다 켤 때 체크가 남아 있으면 안 되므로 끌 때 같이 풀어줍니다.
+    const repair = document.getElementById("usage-repair");
+    const canRepair = MATERIAL_SOURCES[source] === true;
+    repair.disabled = !canRepair;
+    if (!canRepair) repair.checked = false;
+    document.getElementById("usage-repair-hint").textContent = canRepair
+        ? "체크하면 수리 관리에 등록됩니다. 돌아오면 거기서 반납을 눌러 재고를 되돌립니다."
+        : "";
+
     // 아직 안 골랐으면(맨 위 빈 항목) 차감 여부를 말할 수 없으므로 문구를 비웁니다.
     if (!source) {
         hint.textContent = "";
@@ -102,7 +113,10 @@ function updateSourceHint() {
     }
 
     if (MATERIAL_SOURCES[source]) {
-        hint.textContent = `'${source}'는 한진 소유 자재라 현재재고가 차감되고, 수리 관리에도 자동 등록됩니다.`;
+        // ⚠️ 예전에는 "수리 관리에도 자동 등록됩니다"였습니다. 2026-08-19부터 체크했을
+        //    때만 등록됩니다 — 한진 출고 3,197건 중 실제로 돌아온 건 4%뿐이라, 전부
+        //    등록하면 수리 관리가 못 쓰게 쌓입니다.
+        hint.textContent = `'${source}'는 한진 소유 자재라 현재재고가 차감됩니다.`;
     } else {
         hint.textContent = `'${source}'는 한진 소유 자재가 아니라 재고가 차감되지 않습니다 (이력만 기록).`;
     }
@@ -255,6 +269,9 @@ async function submit(e) {
     const partName = partSelect.selectedOptions[0]?.textContent ?? "";
     // "직접 입력"은 MATERIAL_SOURCES에 없는 값이라 항상 차감되지 않습니다.
     const deductStock = MATERIAL_SOURCES[source] ?? false;
+    // 체크박스도 여기서 같이 읽어둡니다. 등록이 오가는 사이 사람이 바뀌어 폼이 비워지면
+    // 나중에 읽었을 때 체크가 풀린 값을 보내게 됩니다(register.js에서 겪은 것과 같은 문제).
+    const sendToRepair = document.getElementById("usage-repair").checked;
 
     if (!source) {
         setStatus("usage-form-status", "자재 출처를 선택해주세요.", "error");
@@ -296,6 +313,7 @@ async function submit(e) {
             quantity: Number(document.getElementById("usage-qty").value),
             manager: source === CUSTOM_SOURCE ? custom : source,
             deductStock,
+            sendToRepair,
             equipmentId: document.getElementById("usage-equipment").value.trim(),
             problem: document.getElementById("usage-problem").value.trim(),
             actionTaken: document.getElementById("usage-action").value.trim(),
@@ -427,6 +445,8 @@ function resetUsageDialog() {
     }
     el("ud-category").innerHTML = "";
     el("ud-stock-hint").textContent = "";
+    el("ud-repair").checked = false;
+    el("ud-repair").disabled = true;
 
     el("ud-delete-details").open = false;
     el("ud-delete-confirm").checked = false;
@@ -466,17 +486,27 @@ function updateStockHint() {
             + (now == null ? "" : ` (${now} → ${after})`)
             + (after != null && after < 0 ? "  ⚠️ 음수가 됩니다" : ""));
     }
-    // ⚠️ 출처만 보고 짐작하면 안 됩니다. 2026-07 이관분과 2026-08-18에 넣은 211건은
-    // 한진 출처인데 수리 건이 없어서(history에 직접 넣었기 때문), 출처를 '보우'로 바꾸면
-    // 있지도 않은 수리 건이 사라진다고 알리게 됩니다. update_usage의 분기와 똑같이 맞춥니다.
-    if (openUsage.hasRepair && !newDeduct) {
+    // 수리 건이 어떻게 되는지. update_usage의 v_want_repair와 똑같은 식이어야 합니다.
+    // ⚠️ 출처만 보고 짐작하면 안 됩니다. 2026-07 이관분처럼 한진 출처인데 수리 건이 없는
+    // 기록이 수천 건이라, 출처만 보면 있지도 않은 수리 건이 사라진다고 알리게 됩니다.
+    const wantRepair = newDeduct && el("ud-repair").checked;
+    if (openUsage.hasRepair && !wantRepair) {
         lines.push("수리 관리에서 이 건이 사라집니다.");
-    } else if (!openUsage.hasRepair && newDeduct && !oldDeduct && newMatId != null) {
+    } else if (!openUsage.hasRepair && wantRepair && newMatId != null) {
         lines.push("수리 관리에 새로 등록됩니다.");
     }
 
     el("ud-stock-hint").textContent =
         lines.length ? `저장하면: ${lines.join(" / ")}` : "재고는 바뀌지 않습니다.";
+}
+
+
+// 팝업의 "수리 보냄"을 쓸 수 있는지 정합니다. 등록 폼과 같은 이유로, 재고를 깎는
+// 출처일 때만 쓸 수 있습니다(반납해도 되돌릴 재고가 없으면 수리로 관리할 의미가 없습니다).
+function updateDialogRepairBox() {
+    const canRepair = MATERIAL_SOURCES[el("ud-source").value] === true;
+    el("ud-repair").disabled = !canRepair;
+    if (!canRepair) el("ud-repair").checked = false;
 }
 
 
@@ -517,6 +547,10 @@ async function openDialog(id) {
     el("ud-action").value = fresh.action_taken ?? "";
     el("ud-part-memo").value = fresh.part_memo ?? "";
     el("ud-note").value = fresh.note ?? "";
+    // 지금 수리 건이 붙어 있는지로 체크 상태를 정합니다. 출처만 보고 정하면 안 됩니다 —
+    // 2026-07 이관분처럼 한진 출처인데 수리 건이 없는 기록이 수천 건입니다.
+    el("ud-repair").checked = fresh.hasRepair;
+    updateDialogRepairBox();
 
     // 반납이 등록된 건은 손댈 수 없습니다. 재고가 여러 번 오가며 꼬이는 것을 막습니다.
     if (fresh.hasRepairReturn) {
@@ -558,9 +592,13 @@ function initUsageDialog() {
         fillDialogPartOptions();
         updateStockHint();
     });
-    for (const id of ["ud-part", "ud-source"]) {
-        el(id).addEventListener("change", updateStockHint);
-    }
+    el("ud-part").addEventListener("change", updateStockHint);
+    // 출처를 바꾸면 "수리 보냄"을 쓸 수 있는지가 달라지므로 먼저 그걸 맞춘 뒤 안내를 고칩니다.
+    el("ud-source").addEventListener("change", () => {
+        updateDialogRepairBox();
+        updateStockHint();
+    });
+    el("ud-repair").addEventListener("change", updateStockHint);
     // 수량은 change보다 input이 더 자주 불려서(끄는 즉시 반영) input 하나만 씁니다.
     el("ud-qty").addEventListener("input", updateStockHint);
 
@@ -583,6 +621,9 @@ function initUsageDialog() {
             action_taken: el("ud-action").value || null,
             part_memo: el("ud-part-memo").value || null,
             note: el("ud-note").value || null,
+            // 화면은 늘 true/false를 보냅니다. DB에서 null은 "수리 건을 건드리지 말라"는
+            // 뜻이라 인자를 안 보내는 옛 화면 전용입니다.
+            send_to_repair: el("ud-repair").checked,
         };
 
         if (!values.manager) {

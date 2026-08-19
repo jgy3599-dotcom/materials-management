@@ -385,7 +385,12 @@ create or replace function register_usage(
     p_part_memo text,
     -- ⚠️ 더 이상 쓰지 않습니다. 지우면 함수 이름이 바뀌는 셈이라, 캐시된 옛 화면을 쓰는
     --    사람은 출고 등록이 통째로 막힙니다. 그래서 인자만 남겨둡니다.
-    p_deduct_stock boolean
+    p_deduct_stock boolean,
+    -- 빼낸 고장품을 수리 보냈는지. 체크했을 때만 수리 건을 만듭니다.
+    -- ⚠️ default를 반드시 둬야 합니다. 안 그러면 캐시된 옛 화면(이 인자를 안 보내는)이
+    --    "함수를 찾을 수 없다"로 등록이 통째로 막힙니다. false면 옛 화면은 수리 건을
+    --    안 만드는데, 그게 바로 새 기본 동작이라 그대로 두면 됩니다.
+    p_send_to_repair boolean default false
 ) returns void
 language plpgsql
 as $$
@@ -412,7 +417,14 @@ begin
     -- 깎은 적 없는 수량을 재고에 더합니다(수리 건도 없으니 가드에도 안 걸립니다).
     if usage_deducts_stock(p_manager) then
         update materials set current_qty = current_qty - p_quantity where id = p_material_id;
+    end if;
 
+    -- ⚠️ 재고 차감과 수리 등록은 따로입니다(2026-08-19 분리).
+    -- 예전에는 한진 자재를 쓰면 무조건 수리 건을 만들었는데, 실측해보니 한진 출고
+    -- 3,197건 중 실제로 돌아온 건 133건(4%)뿐이었습니다. 나머지는 폐기되어 안 돌아옵니다.
+    -- 그대로 두면 수리 관리가 월 180건씩 '수리중'으로 쌓여 못 쓰게 됩니다.
+    -- 그래서 사람이 "수리 보냄"을 체크했을 때만 만듭니다. 재고는 지금까지처럼 깎입니다.
+    if usage_deducts_stock(p_manager) and coalesce(p_send_to_repair, false) then
         -- history_id를 같이 넣어야 나중에 이 출고를 고치거나 지울 때 이 수리 건을 찾습니다.
         insert into repairs (material_id, quantity, sent_on, reason, note, history_id)
         values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note, v_history_id);
@@ -440,13 +452,20 @@ create or replace function update_usage(
     p_equipment_id text,
     p_problem text,
     p_action_taken text,
-    p_part_memo text
+    p_part_memo text,
+    -- 빼낸 고장품을 수리 보냈는지. register_usage와 같은 뜻입니다.
+    -- ⚠️ default가 false가 아니라 null인 것이 중요합니다. false로 두면 캐시된 옛 화면이
+    --    설비ID 오타 하나 고칠 때마다 멀쩡한 수리 건을 지워버립니다. null은 "수리 건은
+    --    건드리지 말고 지금 상태 그대로 둬라"는 뜻입니다.
+    p_send_to_repair boolean default null
 ) returns void
 language plpgsql
 as $$
 declare
     v_old history%rowtype;
     v_repair_id bigint;
+    -- 저장이 끝난 뒤 이 출고에 수리 건이 "있어야 하는가"
+    v_want_repair boolean;
 begin
     -- ⚠️ 권한 검사를 화면에만 두면 안 됩니다. 이 RPC는 로그인한 사람 누구나 직접
     -- 부를 수 있습니다. coalesce를 쓰는 이유는 restrict_material_update와 같습니다 —
@@ -481,28 +500,32 @@ begin
         where id = v_old.material_id;
     end if;
 
-    -- 수리 건 처리
-    if v_repair_id is not null then
-        if usage_deducts_stock(p_manager) then
-            update repairs
-               set material_id = p_material_id, quantity = p_quantity,
-                   sent_on = p_occurred_on, reason = p_problem, note = p_note
-             where id = v_repair_id;
-        else
-            delete from repairs where id = v_repair_id;
-        end if;
-    elsif usage_deducts_stock(p_manager)
-          and not coalesce(usage_deducts_stock(v_old.manager), false)
-          and p_material_id is not null then
-        -- 재고를 안 깎던 출처에서 깎는 출처로 바뀌었으면 수리 건을 새로 만듭니다.
-        -- 예) 실수로 '보우'로 등록했다가 '한진 구매품'으로 고치는 경우.
+    -- 수리 건 처리 — 2026-08-19부터 "수리 보냄" 체크박스가 정합니다.
+    --
+    -- p_send_to_repair 가 null이면(인자를 안 보내는 캐시된 옛 화면) 지금 상태를 그대로
+    -- 유지합니다. 그래서 옛 화면이 설비ID 오타를 고쳐도 수리 건이 생기거나 사라지지 않습니다.
+    --
+    -- ⚠️ 재고를 안 깎는 출처로 바뀌면 체크와 무관하게 수리 건이 없어야 합니다.
+    --    반납해도 되돌릴 재고가 없기 때문입니다.
+    v_want_repair := usage_deducts_stock(p_manager)
+                     and coalesce(p_send_to_repair, v_repair_id is not null);
+
+    if v_want_repair and v_repair_id is not null then
+        update repairs
+           set material_id = p_material_id, quantity = p_quantity,
+               sent_on = p_occurred_on, reason = p_problem, note = p_note
+         where id = v_repair_id;
+    elsif v_want_repair and v_repair_id is null and p_material_id is not null then
+        -- 등록할 때 체크를 깜빡했다가 나중에 체크한 경우입니다.
         --
-        -- ⚠️ 옛 상태도 한진이었다면(위 조건의 not ...이 거짓) 만들지 않습니다.
-        --    2026-07 이관분 4,244건과 2026-08-18에 넣은 211건이 그런 상태입니다 —
-        --    한진 출처인데 수리 건이 없습니다(history에 직접 넣었기 때문).
-        --    오타 하나 고쳤다고 수리 목록에 수천 건이 나타나면 안 됩니다.
+        -- ⚠️ 예전에는 "옛 출처가 한진이 아니었을 때만" 만들었습니다. 2026-07 이관분처럼
+        --    한진 출처인데 수리 건이 없는 기록이 수천 건이라, 오타 하나 고쳤다고 수리
+        --    목록에 그게 다 나타나면 안 됐기 때문입니다. 이제는 사람이 체크를 해야만
+        --    여기 오므로 그 방어가 필요 없습니다(옛 화면은 null이라 여기 오지 않습니다).
         insert into repairs (material_id, quantity, sent_on, reason, note, history_id)
         values (p_material_id, p_quantity, p_occurred_on, p_problem, p_note, p_id);
+    elsif not v_want_repair and v_repair_id is not null then
+        delete from repairs where id = v_repair_id;
     end if;
 
     -- 새 상태 적용
@@ -521,7 +544,7 @@ end;
 $$;
 
 grant execute on function update_usage(bigint, date, bigint, integer, text, text,
-                                       text, text, text, text) to authenticated;
+                                       text, text, text, text, boolean) to authenticated;
 
 
 -- 출고 이력을 지웁니다. 재고 원복·수리 건 삭제·이력 삭제가 한 묶음으로 일어납니다.
@@ -777,7 +800,7 @@ grant execute on function dashboard_summary() to authenticated;
 -- 이제 그 설비 것만 DB에서 바로 가져옵니다(106ms).
 create index if not exists idx_history_equipment_id on history (equipment_id);
 
-grant execute on function register_usage(date, bigint, integer, text, text, text, text, text, text, boolean) to authenticated;
+grant execute on function register_usage(date, bigint, integer, text, text, text, text, text, text, boolean, boolean) to authenticated;
 grant execute on function receive_purchase_request(bigint, bigint, integer, text, numeric, date) to authenticated;
 grant execute on function remove_purchase_request(bigint) to authenticated;
 grant execute on function add_repair_return(bigint, integer, date, text, text) to authenticated;
@@ -827,3 +850,20 @@ grant execute on function usage_deducts_stock(text) to authenticated;
 -- 위쪽 "create or replace function register_usage(" 부터 그 아래
 -- "grant execute on function register_usage(...) to authenticated;" 까지를 복사해
 -- 실행하세요. 이름과 인자는 그대로라 캐시된 옛 화면도 계속 동작합니다.
+
+-- 2026-08-19 : "수리 보냄" 체크박스 — 재고 차감과 수리 등록을 분리
+-- 예전에는 한진 자재를 쓰면 무조건 수리 건이 만들어졌습니다. 실측해보니 한진 출고
+-- 3,197건 중 실제로 돌아온 건 133건(4%)뿐이고 나머지는 폐기되어 안 돌아옵니다.
+-- 그대로 두면 수리 관리가 월 180건씩 '수리중'으로 쌓여 못 쓰게 됩니다.
+-- 이제 사람이 "수리 보냄"을 체크했을 때만 수리 건을 만듭니다. 재고는 그대로 깎입니다.
+--
+-- ⚠️ 옛 grant는 인자 수가 달라 그대로 남습니다. 아래 두 줄로 먼저 지우고 다시 만드세요.
+--    (안 지우면 인자 수가 다른 함수가 둘이 되어 어느 쪽이 불릴지 알 수 없게 됩니다.)
+--
+--   drop function if exists register_usage(date, bigint, integer, text, text, text, text, text, text, boolean);
+--   drop function if exists update_usage(bigint, date, bigint, integer, text, text, text, text, text, text);
+--
+-- 그 다음 위쪽의 "create or replace function register_usage(" 부터
+-- "grant execute on function register_usage(...) to authenticated;" 까지,
+-- 그리고 "create or replace function update_usage(" 부터
+-- "grant execute on function update_usage(...) to authenticated;" 까지를 복사해 실행하세요.

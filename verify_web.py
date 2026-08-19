@@ -152,6 +152,20 @@ def main():
             real_parts = page.locator("#usage-part option:not([value=''])").count()
             check("출고 등록 폼의 부품 선택칸이 채워진다", real_parts > 0, f"{real_parts}개")
 
+            # '수리 보냄'은 재고를 깎는 출처일 때만 쓸 수 있어야 합니다. 보우 자재는
+            # 재고를 안 깎아서 반납해도 되돌릴 재고가 없기 때문입니다.
+            check("'수리 보냄' 체크박스가 있다", page.locator("#usage-repair").count() == 1)
+            page.select_option("#usage-source", "보우")
+            check("보우를 고르면 '수리 보냄'이 잠긴다",
+                  page.locator("#usage-repair").is_disabled())
+            page.select_option("#usage-source", "한진 SPARE")
+            check("한진 SPARE를 고르면 '수리 보냄'이 풀린다",
+                  not page.locator("#usage-repair").is_disabled())
+            check("'수리 보냄'은 기본으로 체크돼 있지 않다",
+                  not page.locator("#usage-repair").is_checked())
+            # 골라둔 것을 되돌려 놓습니다. 다음 검사가 이 폼을 그대로 씁니다.
+            page.select_option("#usage-source", "")
+
             # 수정 팝업은 관리자만 열립니다. 한 번 클릭은 BOQ 이동이라 두 번 클릭과 구분됩니다.
             # ⚠️ 권한으로 갈라야 합니다. 일반 계정으로 돌리면 팝업이 아예 안 열리는 게
             #    정상인데, 그냥 기다리면 15초 뒤 예외가 나서 [6] 이후 검사가 통째로

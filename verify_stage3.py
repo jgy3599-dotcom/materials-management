@@ -11,6 +11,9 @@ DB 쪽 업무 규칙(SQL 함수 4개 + 권한 트리거)이 실제로 제대로 
   [5][6]   수리 반납 - 정상복귀만 재고 복구, 폐기는 안 함
   [7][8]   반납 방어 - 초과 반납 / 잘못된 결과값
   [9]      자재 수정 권한 - 일반 권한은 현재재고만 바꿀 수 있는가
+  [10][11] 출고 이력 수정·삭제 - 재고와 수리 건이 함께 따라오는가
+  [12]     '수리 보냄' 체크 - 재고 차감과 수리 등록이 따로 도는가
+           (12-2는 캐시된 옛 화면이 멀쩡한 수리 건을 지우지 않는지 봅니다)
 
   ⚠️ [9]의 일반 권한 검사가 특히 중요합니다. 나머지 검사는 전부 current_qty만
   바꾸는데 그 필드는 일반 권한도 허용이라, 권한 트리거가 통째로 사라져도 다 통과합니다.
@@ -174,7 +177,7 @@ def main():
             "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": 3,
             "p_manager": "한진 SPARE", "p_note": "검증용", "p_equipment_id": None,
             "p_problem": "검증용 고장", "p_action_taken": None, "p_part_memo": None,
-            "p_deduct_stock": True,
+            "p_deduct_stock": True, "p_send_to_repair": True,
         }).execute()
         check("재고가 3개 줄었다", START_QTY - 3, qty())
         check("수리 건이 자동 생성됐다", 1, count("repairs", "material_id", mid))
@@ -203,7 +206,7 @@ def main():
             "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": 2,
             "p_manager": "보우", "p_note": "검증용", "p_equipment_id": None,
             "p_problem": None, "p_action_taken": None, "p_part_memo": None,
-            "p_deduct_stock": False,
+            "p_deduct_stock": False, "p_send_to_repair": False,
         }).execute()
         check("재고가 그대로다", START_QTY - 3, qty())
         check("수리 건은 안 늘었다", 1, count("repairs", "material_id", mid))
@@ -220,7 +223,7 @@ def main():
                 "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": -5,
                 "p_manager": "한진 SPARE", "p_note": "음수 검증", "p_equipment_id": None,
                 "p_problem": None, "p_action_taken": None, "p_part_memo": None,
-                "p_deduct_stock": True,
+                "p_deduct_stock": True, "p_send_to_repair": True,
             }).execute(),
             "수량은 1개 이상")
         check("거부됐으므로 재고는 그대로다", START_QTY - 3, qty())
@@ -434,7 +437,7 @@ def main():
             "p_occurred_on": TODAY, "p_material_id": mid, "p_quantity": 1,
             "p_manager": "한진 SPARE", "p_note": "수정검증", "p_equipment_id": "TEST-EQ",
             "p_problem": "수정검증", "p_action_taken": None, "p_part_memo": None,
-            "p_deduct_stock": True,
+            "p_deduct_stock": True, "p_send_to_repair": True,
         }).execute()
         target = one_row(
             client.table("history").select("id").eq("material_id", mid)
@@ -443,10 +446,14 @@ def main():
         hid = target["id"] if target else None
 
         def edit(**over):
+            # p_send_to_repair를 True로 둡니다. 이 [10] 묶음은 "수리 보냄"을 체크한
+            # 출고를 고치는 상황이라, 체크를 유지한 채 고치는 것이 맞습니다.
+            # (체크박스 자체의 동작은 아래 [12]에서 따로 봅니다.)
             args = {"p_id": hid, "p_occurred_on": TODAY, "p_material_id": mid,
                     "p_quantity": 1, "p_manager": "한진 SPARE", "p_note": "수정검증",
                     "p_equipment_id": "TEST-EQ", "p_problem": "수정검증",
-                    "p_action_taken": None, "p_part_memo": None}
+                    "p_action_taken": None, "p_part_memo": None,
+                    "p_send_to_repair": True}
             args.update(over)
             return client.rpc("update_usage", args).execute()
 
@@ -587,6 +594,51 @@ def main():
             check("재고가 원복됐다", before_del, qty_of(mid_b))
             check("수리 건이 지워졌다", 0, count("repairs", "history_id", did))
             check("출고 이력이 지워졌다", 0, count("history", "id", did))
+
+        # ---------- 12 ----------
+        # 2026-08-19부터 재고 차감과 수리 등록이 따로 돕니다. 한진 출고 3,197건 중
+        # 실제로 수리를 갔다 돌아온 건 4%뿐이라, 전부 수리 건을 만들면 수리 관리가
+        # 못 쓰게 쌓이기 때문입니다. 재고는 출처로, 수리 건은 체크박스로 정합니다.
+        print("\n[12] '수리 보냄' 체크 - 재고 차감과 수리 등록이 따로 도는가")
+        q12 = qty_of(mid_b)
+        client.rpc("register_usage", {
+            "p_occurred_on": TODAY, "p_material_id": mid_b, "p_quantity": 1,
+            "p_manager": "한진 SPARE", "p_note": "체크검증", "p_equipment_id": None,
+            "p_problem": "체크검증", "p_action_taken": None, "p_part_memo": None,
+            "p_deduct_stock": True, "p_send_to_repair": False,
+        }).execute()
+        check("체크를 안 해도 재고는 깎인다", q12 - 1, qty_of(mid_b))
+
+        row12 = one_row(
+            client.table("history").select("id").eq("material_id", mid_b)
+                  .eq("direction", "출고").order("id", desc=True).limit(1).execute(),
+            "체크검증용 출고 이력")
+        h12 = row12["id"] if row12 else None
+        check("체크를 안 하면 수리 건이 안 생긴다", 0, count("repairs", "history_id", h12))
+
+        def edit12(**over):
+            args = {"p_id": h12, "p_occurred_on": TODAY, "p_material_id": mid_b,
+                    "p_quantity": 1, "p_manager": "한진 SPARE", "p_note": "체크검증",
+                    "p_equipment_id": None, "p_problem": "체크검증",
+                    "p_action_taken": None, "p_part_memo": None}
+            args.update(over)
+            return client.rpc("update_usage", args).execute()
+
+        print("  [12-1] 등록할 때 깜빡했다가 나중에 체크하면 수리 건이 생기는가")
+        edit12(p_send_to_repair=True)
+        check("나중에 체크하면 수리 건이 생긴다", 1, count("repairs", "history_id", h12))
+
+        # ⚠️ 이 검사가 제일 중요합니다. p_send_to_repair를 안 보내는 것은 캐시된 옛
+        #    화면입니다. DB 기본값이 false면 옛 화면이 설비ID 오타 하나 고칠 때마다
+        #    멀쩡한 수리 건을 지워버립니다. 그래서 기본값이 null(= 건드리지 말 것)입니다.
+        print("  [12-2] 인자를 안 보내는 옛 화면이 수리 건을 지우지 않는가")
+        edit12(p_note="옛화면_수정")
+        check("인자를 안 보내면 수리 건을 건드리지 않는다", 1, count("repairs", "history_id", h12))
+
+        print("  [12-3] 체크를 풀면 수리 건이 사라지는가")
+        edit12(p_send_to_repair=False)
+        check("체크를 풀면 수리 건이 사라진다", 0, count("repairs", "history_id", h12))
+        check("수리 건을 지워도 재고는 그대로다", q12 - 1, qty_of(mid_b))
 
     except Exception as e:
         # ⚠️ 이 except를 빼지 마세요. 없으면 오류가 그대로 밖으로 나가서, 뒷정리는
