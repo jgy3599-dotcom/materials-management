@@ -18,6 +18,7 @@ const TABLE_ID = "materials-table";
 const AUDIT_TABLE_ID = "materials-audit-table";
 
 let loaded = false;
+let loadSeq = 0;           // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
 let isAdmin = false;
 let isSuperAdmin = false;
 let currentEmail = "";
@@ -58,9 +59,16 @@ const el = (id) => document.getElementById(id);
 export async function load(force = false) {
     if (loaded && !force) return null;
 
+    // ⚠️ 순번을 매겨, 나보다 늦게 시작한 불러오기가 있으면 화면에 손대지 않습니다.
+    // 이게 없으면 관리자가 로그아웃하는 순간에 돌고 있던 불러오기가 뒤늦게 끝나면서
+    // setUser가 비워둔 표를 관리자 기준(행 두 번 클릭 → 수정/삭제 창)으로 도로 그리고
+    // "이미 읽었음"으로 표시해, 다음 사람이 열어도 다시 읽지 않습니다.
+    const seq = ++loadSeq;
+
     setStatus("materials-status", "불러오는 중...");
     try {
         const rows = await getMaterials();
+        if (seq !== loadSeq) return null;
         // 수정 창은 두 번 눌러야 열립니다. 한 번 누르는 것만으로 열리면 표를 훑다가
         // 실수로 열기 쉽습니다. 한 번 누르면 행이 선택만 되어 어느 줄인지 보입니다.
         renderTable(TABLE_ID, rows, COLUMNS, {
@@ -73,13 +81,17 @@ export async function load(force = false) {
         loaded = true;
     } catch (err) {
         const reason = describeError(err, "자재 목록을 불러오지 못했습니다.");
+        // 나보다 나중에 시작한 불러오기가 있으면 화면은 그쪽에 맡기고, 실패했다는 사실만
+        // 돌려줍니다(purchase.js의 load와 같습니다). 여기서 null(=성공)을 돌려주면 부른
+        // 쪽이 초록 성공으로 표시해, 새로고침이 실패했는데도 다 된 것처럼 보입니다.
+        if (seq !== loadSeq) return reason;
         setStatus("materials-status", reason, "error");
         // 다시 읽기에 실패했으면 "이미 읽었다"는 표시를 지웁니다. 안 그러면 메뉴를
         // 오갔다 돌아와도 옛 목록을 그대로 두고 다시 읽지 않습니다.
         loaded = false;
         return reason;
     } finally {
-        if (isSuperAdmin) loadAuditLog();
+        if (seq === loadSeq && isSuperAdmin) loadAuditLog();
     }
     return null;
 }
@@ -425,6 +437,20 @@ export function setUser(session, admin, superAdmin) {
     if (key !== lastUserKey) {
         lastUserKey = key;
         loaded = false;
+        // 돌고 있는 불러오기를 무효로 만듭니다. 안 그러면 앞사람 때 시작한 것이 뒤늦게
+        // 끝나면서 아래에서 비운 표를 도로 그립니다.
+        loadSeq++;
+        // 표를 실제로 비웁니다. 위의 loaded=false는 "다음에 다시 읽어라"일 뿐이라, 그
+        // 읽기가 실패하면 관리자 때 그려진 표(행 두 번 클릭 → 수정/삭제 창)가 그대로
+        // 남아, 관리자가 아닌 사람이 수정·삭제 창을 열고 날것의 DB 권한 오류를 보게 됩니다.
+        renderTable(TABLE_ID, [], COLUMNS);
+        el("materials-count").textContent = "";
+        // 무효로 만든 불러오기는 자기가 써둔 "불러오는 중..."을 지우지 않고 물러나므로,
+        // 안 지우면 그 문구가 그대로 멈춰 있습니다.
+        setStatus("materials-status", "");
+        // 감사 로그는 최상위 권한자만 보는 것이라 더더욱 남으면 안 됩니다.
+        renderTable(AUDIT_TABLE_ID, [], AUDIT_COLUMNS);
+        setStatus("materials-audit-status", "");
     }
 
     el("materials-edit-hint").textContent = isAdmin
