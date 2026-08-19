@@ -5,7 +5,7 @@ import {
     getUsage, updateUsage, deleteUsage, insertAuditLog,
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, today, esc } from "../ui.js";
+import { setStatus, describeError, today, esc, refill } from "../ui.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -42,17 +42,6 @@ let isAdmin = false;
 let currentEmail = "";
 let openUsage = null;       // 지금 팝업에 열려 있는 출고 이력 (DB에서 새로 읽은 값)
 let busyUsage = false;      // 팝업의 저장·삭제가 DB 응답을 기다리는 중인지
-
-
-// 선택칸을 다시 그리면 골라둔 값이 첫 번째 것으로 되돌아갑니다. 폼을 채우던 중에
-// 새로고침을 누르면 글로 쓴 칸은 남고 선택칸만 바뀌어서, 폼이 멀쩡해 보이는 채로
-// 엉뚱한 자재의 재고가 깎일 수 있습니다. 그래서 다시 그리기 전에 고른 값을 기억했다가
-// 그 값이 아직 목록에 있으면 되돌려 놓습니다.
-function refill(select, html) {
-    const keep = select.value;
-    select.innerHTML = html;
-    if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
-}
 
 
 // 부품 선택칸을 채웁니다.

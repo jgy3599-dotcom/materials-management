@@ -8,7 +8,7 @@ import {
     markPurchasing, receiveRequest, removePurchaseRequest, ALL_STATUSES, OPEN_STATUSES,
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, esc, hasValue } from "../ui.js";
+import { setStatus, describeError, esc, hasValue, refill } from "../ui.js";
 
 const REQUEST_COLUMNS = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태",
                          "요청자", "거래업체", "단가", "입고수량", "요청일시"];
@@ -58,8 +58,8 @@ function setBusy(on) {
 
 function fillCategoryOptions() {
     const categories = [...new Set(materials.map((m) => m["카테고리"]).filter(Boolean))].sort();
-    document.getElementById("pr-category").innerHTML =
-        ["전체", ...categories].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    refill(document.getElementById("pr-category"),
+        ["전체", ...categories].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join(""));
 }
 
 
@@ -70,10 +70,14 @@ function fillPartOptions() {
     const select = document.getElementById("pr-part");
     const list = category === "전체" ? materials : materials.filter((m) => m["카테고리"] === category);
 
-    select.innerHTML = list.map((m) => {
+    // 맨 위에 빈 항목을 둡니다. 선택칸을 다시 그리면 브라우저가 첫 항목을 자동으로 고르는데,
+    // 그게 실제 자재이면 사람이 고른 적 없는 부품으로 구매요청이 올라갑니다. 빈 항목이 첫
+    // 자리에 있으면 값이 비고, submitRequest()의 "부품을 선택해주세요" 검사에 걸립니다.
+    // (출고 화면 usage.js의 fillPartOptions와 같은 처리입니다)
+    refill(select, [`<option value="">부품을 선택하세요</option>`, ...list.map((m) => {
         const warehouse = m["창고번호"] ? ` · 창고 ${m["창고번호"]}` : "";
         return `<option value="${m.id}">${esc(m["부품명(규격)"])}${esc(warehouse)}</option>`;
-    }).join("");
+    })].join(""));
 
     showSelectedStock();
 }
