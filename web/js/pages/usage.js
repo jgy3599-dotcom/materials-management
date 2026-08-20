@@ -297,11 +297,15 @@ async function submit(e) {
         //
         // 깎지 않는 출처(보우·POSCO·BEUMER)는 막지 않습니다. 목록에서 골라도 어차피 깎이지
         // 않아 결과가 같으므로, 막으면 "목록에서 고르면 깎인다"고 잘못 알려주게 됩니다.
-        const flat = (s) => s.replace(/\s/g, "").toLowerCase();
-        const known = Object.keys(MATERIAL_SOURCES).find((s) => MATERIAL_SOURCES[s] && flat(s) === flat(custom));
-        if (known) {
+        //
+        // ⚠️ 예전에는 '한진 SPARE'와 완전히 같을 때만(공백·대소문자 무시) 막았는데,
+        // '한진스페어'·'한진 SPARE(창고2)'·'한진 구매'처럼 조금만 달리 쓰면 그대로
+        // 통과했습니다. DB(usage_deducts_stock)는 이름이 정확히 맞을 때만 재고를 깎으므로
+        // 그런 값은 전부 "이력엔 한진 자재, 재고는 그대로"가 됩니다. 그래서 '한진'이라는
+        // 글자가 들어가면 전부 막습니다 — 한진 자재는 목록에서 골라야 합니다.
+        if (custom.replace(/\s/g, "").includes("한진")) {
             setStatus("usage-form-status",
-                `'${known}'는 목록에서 골라야 재고가 차감됩니다. 직접 입력으로 적으면 이력에만 남고 재고는 그대로이니, 목록에서 '${known}'를 골라주세요.`, "error");
+                "한진 자재는 목록에서 '한진 SPARE' 또는 '한진 구매품'을 골라야 재고가 차감됩니다. 직접 입력으로 적으면 이력에만 남고 재고는 그대로입니다.", "error");
             return;
         }
     }

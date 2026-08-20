@@ -122,21 +122,28 @@ function render(session) {
         show(appView);
         goToPage(currentPage);   // 요약은 goToPage가 함께 갱신합니다
     } else {
-        // 팝업은 화면 맨 위층에 뜨기 때문에 로그인 화면으로 돌아가도 그대로 남습니다.
-        // 다른 탭에서 로그아웃했거나 로그인이 만료됐을 때, 로그인 화면 위에 자재 내용이
-        // 보이고 삭제 버튼까지 눌리는 상태가 됩니다. 그래서 열린 팝업을 모두 닫습니다.
-        for (const dlg of document.querySelectorAll("dialog[open]")) dlg.close();
-        // 입력 폼이 있는 화면은 로그아웃 시점에 비웁니다. 일반 사용자는 공용 계정 하나를
-        // 함께 쓰기 때문에, 다음 사람이 같은 계정으로 들어와도 앞사람이 골라둔 것이
-        // 남아 있으면 안 됩니다(로그인 때만 비우면 이메일이 같아 그냥 지나갑니다).
-        usagePage.setUser(null, false);
-        repairsPage.setUser(null);
-        // 등록·구매요청은 권한도 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
-        registerPage.setUser(null, false);
-        purchasePage.setUser(null, false);
-        // 자재 목록도 권한을 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
-        materialsPage.setUser(null, false, false);
-        show(loginView);
+        // ⚠️ 비우는 도중에 오류가 나도 로그인 화면 전환은 반드시 해야 합니다. 예전에는
+        // show(loginView)가 맨 아래에 있어서, 아래 setUser 중 하나가 DOM 오류를 내면
+        // 거기서 멈춰 "로그아웃했는데 앱 화면이 그대로 남는" 상태가 됐습니다.
+        // 비우기를 먼저 시도하는 순서는 그대로 두고, 전환만 finally로 뺐습니다.
+        try {
+            // 팝업은 화면 맨 위층에 뜨기 때문에 로그인 화면으로 돌아가도 그대로 남습니다.
+            // 다른 탭에서 로그아웃했거나 로그인이 만료됐을 때, 로그인 화면 위에 자재 내용이
+            // 보이고 삭제 버튼까지 눌리는 상태가 됩니다. 그래서 열린 팝업을 모두 닫습니다.
+            for (const dlg of document.querySelectorAll("dialog[open]")) dlg.close();
+            // 입력 폼이 있는 화면은 로그아웃 시점에 비웁니다. 일반 사용자는 공용 계정 하나를
+            // 함께 쓰기 때문에, 다음 사람이 같은 계정으로 들어와도 앞사람이 골라둔 것이
+            // 남아 있으면 안 됩니다(로그인 때만 비우면 이메일이 같아 그냥 지나갑니다).
+            usagePage.setUser(null, false);
+            repairsPage.setUser(null);
+            // 등록·구매요청은 권한도 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
+            registerPage.setUser(null, false);
+            purchasePage.setUser(null, false);
+            // 자재 목록도 권한을 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
+            materialsPage.setUser(null, false, false);
+        } finally {
+            show(loginView);
+        }
     }
 }
 
