@@ -517,6 +517,19 @@ export function setUser(session, admin) {
         // 을 지우지 않고 물러나므로, 안 지우면 그 문구가 그대로 멈춰 있습니다.
         setStatus("pr-status", "");
 
+        // 로그아웃 경로는 main.js가 열린 팝업을 닫아 주지만, 로그인 상태로 권한만 바뀌어
+        // 여기가 다시 불리는 경로는 닫아주지 않습니다. 게다가 팝업을 닫아도 이 파일이 들고
+        // 있는 busy·openRequest는 그대로 남습니다.
+        //
+        // ⚠️ busy가 true로 남는 것이 특히 나쁩니다. setBusy(false)를 부르는 곳이 처리가
+        // 끝나는 자리뿐이라, 앞사람이 승인·입고를 누른 채 로그아웃되면 true로 굳습니다.
+        // 그러면 다음 사람이 팝업을 열어도 닫기 버튼까지 잠긴 채라 창을 못 닫습니다.
+        // (usage.js·repairs.js에는 이미 있는 처리입니다.)
+        const dlg = document.getElementById("pr-dialog");
+        if (dlg.open) dlg.close();
+        openRequest = null;
+        setBusy(false);
+
         // reset()이 요청자 칸까지 비우므로 여기서 다시 채웁니다. 이 대입이 조건 밖에
         // 있으면 로그인이 자동으로 갱신될 때마다 실행돼서, 동료 이름을 적어둔 사람의
         // 입력이 말없이 계정 이메일로 바뀝니다(요청자는 고쳐 쓰라고 만든 칸입니다).

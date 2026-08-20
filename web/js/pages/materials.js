@@ -247,6 +247,12 @@ async function saveMaterial(e) {
     // 창을 닫고 다른 자재를 열면 openMaterial이 그 자재로 바뀌는데, 그대로 두면
     // A의 재고 변화가 B에 적용됩니다. 삭제 쪽은 이미 이렇게 하고 있었습니다.
     const target = openMaterial;
+    // ⚠️ DB에 들어가는 값과 "지금 사람"은 await 전에 전부 읽어둡니다. 응답을 기다리는 사이
+    // 자동 로그아웃이나 다른 탭에서의 로그아웃이 걸리면 currentEmail이 빈 문자열로 바뀌어
+    // 감사 로그의 행위자가 사라지고, 아래 안내("자재가 수정되었습니다")가 뒷사람 화면에
+    // 뜹니다. usage.js·purchase.js·register.js에는 이미 있는 처리인데 여기만 빠져 있었습니다.
+    const actorEmail = currentEmail;
+    const myUserKey = lastUserKey;
 
     const data = readForm();
     if (!data.part_name) {
@@ -278,6 +284,9 @@ async function saveMaterial(e) {
     try {
         await updateMaterial(target.id, data);
     } catch (err) {
+        // 사람이 바뀌었으면 이 실패 안내도 뒷사람 화면(지금은 비어 있는 팝업)에 쓰지 않습니다.
+        // 버튼 잠금은 setUser가 이미 풀어놨으므로 여기서 손대지 않습니다.
+        if (lastUserKey !== myUserKey) return;
         setStatus("mat-dialog-status", describeError(err, "자재 수정에 실패했습니다."), "error");
         setBusy(false);
         return;
@@ -297,7 +306,11 @@ async function saveMaterial(e) {
             // ⚠️ 여기서는 재고가 반영됐는지 안 됐는지 알 수 없습니다. DB는 처리했는데
             // 응답만 못 받았을 수도 있기 때문입니다. 그대로 다시 저장하면 같은 차이가
             // 한 번 더 더해집니다. 그래서 DB에서 지금 값을 다시 읽어 기준을 맞춥니다.
-            await recoverAfterAdjustFailure(target, err, data, beforeData);
+            //
+            // 사람이 바뀌었으면 뒷정리도 하지 않습니다. 뒷정리는 "지금 열려 있는 팝업의
+            // 입력칸과 안내"를 고치는 것인데, 그 팝업은 이미 앞사람의 것이 아닙니다.
+            if (lastUserKey !== myUserKey) return;
+            await recoverAfterAdjustFailure(target, err, data, beforeData, actorEmail);
             setBusy(false);
             return;
         }
@@ -307,7 +320,7 @@ async function saveMaterial(e) {
     // "저장은 됐지만 기록은 못 남겼다"고 사실대로 알립니다.
     const warnings = [];
     try {
-        await insertAuditLog(currentEmail, "update", target.id, data.part_name,
+        await insertAuditLog(actorEmail, "update", target.id, data.part_name,
             beforeData, { ...data, current_qty: finalQty });
     } catch (err) {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
@@ -324,6 +337,10 @@ async function saveMaterial(e) {
         notices.push(`현재재고가 ${finalQty}개입니다. 있는 것보다 많이 나간 상태라, 재고나 이력을 확인해보세요.`);
     }
 
+    // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 저장 자체는 이미 끝났고, 아래의
+    // 팝업 닫기·다시 읽기·초록 안내는 지금 화면을 보고 있는 사람의 것이 아닙니다.
+    if (lastUserKey !== myUserKey) return;
+
     setBusy(false);
     await finish(`'${data.part_name}' 자재가 수정되었습니다.`, warnings, notices);
 }
@@ -333,7 +350,7 @@ async function saveMaterial(e) {
 // 반영됐는지 알 수 없으므로 DB에서 지금 값을 다시 읽어 기준과 입력칸을 맞춥니다.
 // 그래야 사람이 다시 저장을 눌러도 남은 차이만큼만 더해집니다.
 // 항목은 이미 저장됐으므로 감사 로그도 여기서 남깁니다(안 그러면 기록 없이 바뀝니다).
-async function recoverAfterAdjustFailure(target, err, data, beforeData) {
+async function recoverAfterAdjustFailure(target, err, data, beforeData, actorEmail) {
     let actual = null;
     try {
         actual = await getMaterial(target.id);
@@ -349,7 +366,7 @@ async function recoverAfterAdjustFailure(target, err, data, beforeData) {
     }
 
     try {
-        await insertAuditLog(currentEmail, "update", target.id, data.part_name,
+        await insertAuditLog(actorEmail, "update", target.id, data.part_name,
             beforeData, { ...data, current_qty: actual ? actual.current_qty : "확인필요" });
     } catch {
         // 감사 로그까지 실패하면 아래 안내에 묻어갑니다.
@@ -369,6 +386,9 @@ async function removeMaterial() {
     setBusy(true);
     setStatus("mat-dialog-status", "처리 중...");
     const removed = { ...openMaterial };
+    // 감사 로그의 행위자와 "지금 사람"을 await 전에 붙잡아 둡니다(saveMaterial과 같은 이유).
+    const actorEmail = currentEmail;
+    const myUserKey = lastUserKey;
     try {
         await deleteMaterial(removed.id);
     } catch (err) {
@@ -377,6 +397,9 @@ async function removeMaterial() {
         // 어느 쪽인지는 알 수 없으므로 전부 짚어줍니다. 이력만 지우고 다시 눌렀다가
         // 같은 문구를 또 보면 어디를 봐야 할지 알 수 없습니다.
         // 권한 문제 같은 다른 오류까지 같은 문구로 뭉뚱그리지는 않습니다.
+        //
+        // 사람이 바뀌었으면 이 안내는 뒷사람의 것이 아니므로 쓰지 않습니다.
+        if (lastUserKey !== myUserKey) return;
         setStatus("mat-dialog-status",
             err?.code === "23503"
                 ? "이 자재를 쓴 기록이 남아있어 삭제할 수 없습니다. 입출고 이력 · 구매요청 · 구매이력 · 수리 기록을 확인해주세요."
@@ -392,10 +415,15 @@ async function removeMaterial() {
     // 안 그러면 지워진 자재가 화면에 남은 채 "삭제 실패"라고 나옵니다.
     const warnings = [];
     try {
-        await insertAuditLog(currentEmail, "delete", removed.id, removed.part_name, removed);
+        await insertAuditLog(actorEmail, "delete", removed.id, removed.part_name, removed);
     } catch (err) {
         warnings.push(describeError(err, "감사 로그를 남기지 못했습니다."));
     }
+
+    // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 삭제 자체는 이미 끝났고, 아래의
+    // 팝업 닫기·다시 읽기·초록 안내는 지금 화면을 보고 있는 사람의 것이 아닙니다.
+    // (openMaterial과 버튼 잠금은 setUser가 이미 비워놨습니다.)
+    if (lastUserKey !== myUserKey) return;
 
     // 자재는 이미 사라졌으니 대상을 비웁니다. 이걸 안 비우면 바로 아래 setBusy(false)가
     // 저장·삭제 버튼을 도로 풀어서, 없는 자재에 대고 다시 삭제를 누를 수 있습니다.
@@ -466,6 +494,18 @@ export function setUser(session, admin, superAdmin) {
         // 감사 로그는 최상위 권한자만 보는 것이라 더더욱 남으면 안 됩니다.
         renderTable(AUDIT_TABLE_ID, [], AUDIT_COLUMNS);
         setStatus("materials-audit-status", "");
+        // 로그아웃 경로는 main.js가 열린 팝업을 닫아 주지만, 로그인 상태로 권한만 바뀌어
+        // 여기가 다시 불리는 경로는 닫아주지 않습니다. 게다가 팝업을 닫아도 이 파일이 들고
+        // 있는 busy·openMaterial은 그대로 남습니다.
+        //
+        // ⚠️ busy가 true로 남는 것이 특히 나쁩니다. setBusy(false)를 부르는 곳이 저장·삭제가
+        // 끝나는 자리뿐이라, 앞사람이 저장을 누른 채 로그아웃되면 true로 굳습니다. 그러면
+        // 다음 사람이 팝업을 열어도 닫기 버튼(mat-dialog-close)까지 잠긴 채라 창을 못 닫습니다.
+        // (usage.js·repairs.js에는 이미 있는 처리입니다.)
+        const dlg = el("mat-dialog");
+        if (dlg.open) dlg.close();
+        openMaterial = null;
+        setBusy(false);   // openMaterial을 비운 뒤에 불러야 저장·삭제가 잠긴 채로 풀립니다
     }
 
     el("materials-edit-hint").textContent = isAdmin
