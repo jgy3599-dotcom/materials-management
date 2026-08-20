@@ -303,7 +303,10 @@ async function submit(e) {
         // 통과했습니다. DB(usage_deducts_stock)는 이름이 정확히 맞을 때만 재고를 깎으므로
         // 그런 값은 전부 "이력엔 한진 자재, 재고는 그대로"가 됩니다. 그래서 '한진'이라는
         // 글자가 들어가면 전부 막습니다 — 한진 자재는 목록에서 골라야 합니다.
-        if (custom.replace(/\s/g, "").includes("한진")) {
+        // 로마자로 적는 것(HANJIN SPARE)도 같이 막습니다. 한글만 보면 그쪽으로 그대로
+        // 새어나가서, 막으려던 "조금만 달리 쓰기"가 그대로 남습니다.
+        const flat = custom.replace(/\s/g, "").toLowerCase();
+        if (flat.includes("한진") || flat.includes("hanjin")) {
             setStatus("usage-form-status",
                 "한진 자재는 목록에서 '한진 SPARE' 또는 '한진 구매품'을 골라야 재고가 차감됩니다. 직접 입력으로 적으면 이력에만 남고 재고는 그대로입니다.", "error");
             return;

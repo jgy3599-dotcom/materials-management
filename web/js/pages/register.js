@@ -1,6 +1,6 @@
 // 자재 등록 화면입니다.
 import { getCategories, insertMaterial, insertAuditLog } from "../db.js";
-import { setStatus, describeError, esc } from "../ui.js";
+import { setStatus, describeError, esc, refill } from "../ui.js";
 import { dataChanged } from "../refresh.js";
 
 const NEW_CATEGORY = "➕ 새 카테고리 직접 입력";
@@ -17,8 +17,12 @@ let loadSeq = 0;           // 불러오기 순번 (늦게 시작한 것만 화�
 // "직접 입력"은 관리자에게만 보여줍니다. 오타로 새 카테고리가 잘못 생기는 걸 막기 위해서입니다.
 function fillCategoryOptions() {
     const options = admin ? [...categories, NEW_CATEGORY] : categories;
-    document.getElementById("reg-category").innerHTML =
-        options.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+    // ⚠️ innerHTML로 통째로 갈아치우면 골라둔 카테고리가 말없이 첫 항목으로 돌아갑니다.
+    // 폼 내용은 그대로 남아 있어서, 멀쩡해 보이는 채로 엉뚱한 카테고리로 등록됩니다.
+    // 이 화면은 재고가 바뀔 때마다 다시 읽으므로(refresh.js), 다른 화면에서 출고를 하나
+    // 등록하고 돌아오기만 해도 그 일이 벌어집니다. refill()이 고른 값을 되돌려 놓습니다.
+    refill(document.getElementById("reg-category"),
+        options.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join(""));
     updateNewCategoryBox();
 }
 

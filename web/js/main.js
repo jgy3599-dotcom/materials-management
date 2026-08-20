@@ -141,6 +141,11 @@ function render(session) {
             purchasePage.setUser(null, false);
             // 자재 목록도 권한을 함께 받으므로 로그아웃 상태(권한 없음)로 넘깁니다.
             materialsPage.setUser(null, false, false);
+            // 구매 필요 알림에는 setUser가 없습니다(입력 폼도 권한 구분도 없는 화면이라
+            // 만들지 않았습니다). 그래도 앞사람이 받아둔 목록을 그대로 두면, 다음 사람이
+            // 그 메뉴를 열었을 때 "이미 읽었음"이라 다시 읽지 않고 앞사람 시점의 재고를
+            // 봅니다. 다시 읽으라고 표시만 해둡니다.
+            alertPage.invalidate();
         } finally {
             show(loginView);
         }

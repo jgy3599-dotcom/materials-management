@@ -1,7 +1,7 @@
 // 구매 필요 알림 화면입니다. 표준재고보다 부족한 자재를 모아서 보여줍니다.
 import { getMaterials } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, esc } from "../ui.js";
+import { setStatus, describeError, esc, refill } from "../ui.js";
 
 const COLUMNS = ["카테고리", "구분", "부품명(규격)", "창고번호", "표준재고", "현재재고", "구매필요", "거래처", "비고"];
 const TABLE_ID = "alert-table";
@@ -40,8 +40,10 @@ export async function load(force = false) {
             .sort((a, b) => b["구매필요"] - a["구매필요"]);
 
         const categories = [...new Set(needPurchase.map((m) => m["카테고리"]).filter(Boolean))].sort();
-        document.getElementById("alert-category").innerHTML =
-            ["전체", ...categories].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join("");
+        // refill은 골라둔 카테고리를 되돌려 놓습니다. innerHTML로 갈아치우면 재고가 바뀔
+        // 때마다(refresh.js) 이 화면이 다시 읽히면서 필터가 말없이 '전체'로 풀립니다.
+        refill(document.getElementById("alert-category"),
+            ["전체", ...categories].map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join(""));
 
         applyFilter();
         setStatus("alert-status", "");
