@@ -58,3 +58,14 @@ export function refill(select, html) {
     select.innerHTML = html;
     if (keep && [...select.options].some((o) => o.value === keep)) select.value = keep;
 }
+
+
+// DB가 스스로 거부한 것인지 가립니다. supabase_setup.sql에 적어둔 raise exception은
+// PostgreSQL 기본값인 SQLSTATE P0001로 옵니다("보낸 수량을 초과합니다" 같은 것들).
+//
+// 통신이 끊겨 응답만 못 받은 경우와 구분해야 합니다. 그건 "DB는 처리했을 수도 있다"지만,
+// 이건 "확실히 처리되지 않았다"입니다. 둘을 같이 다루면 절대 등록되지 않은 것을 표에서
+// 찾게 만드는 안내가 나갑니다.
+export function isRejectedByDb(err) {
+    return err?.code === "P0001";
+}

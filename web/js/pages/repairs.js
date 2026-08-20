@@ -4,7 +4,7 @@
 // '한진 구매품'으로 하면 자동으로 생깁니다.
 import { getRepairs, getRepairReturns, addRepairReturn } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, esc, today } from "../ui.js";
+import { setStatus, describeError, esc, today, isRejectedByDb } from "../ui.js";
 import { dataChanged } from "../refresh.js";
 
 const COLUMNS = ["id", "부품명(규격)", "보낸수량", "반납수량", "상태", "보낸날짜", "보낸곳", "사유", "예상복귀일", "비고"];
@@ -208,13 +208,29 @@ async function submitReturn(e) {
         // 경우가 있어서(통신이 끊기는 순간), 다시 누르면 같은 반납이 두 번 들어가 '정상복귀'면
         // 재고가 두 번 늘어납니다. 보낸 수량에 여유가 없으면 DB의 초과 반납 검사가 막아주지만,
         // 여유가 있으면 그대로 통과합니다(usage.js·purchase.js와 같은 처리).
+        const maybeDone = !isRejectedByDb(err);
+
+        if (maybeDone) {
+            // 재고가 이미 바뀌었을 수 있으므로 다른 화면도 낡은 것으로 표시합니다.
+            dataChanged();
+            // 표를 새로 읽고, 고른 건도 다시 그립니다. 표만 읽으면 눈앞의 상세창이
+            // "N개 중 M개 반납됨"·남은 수량·입력 최대값을 반납 전 값으로 들고 있어서,
+            // 그 낡은 숫자를 믿고 같은 반납을 또 넣게 됩니다.
+            const rows = await load(true);
+            const updated = rows?.find((r) => r.id === repairId);
+            if (updated) await selectRepair(updated);
+        }
+
+        // ⚠️ 안내는 selectRepair "뒤에" 씁니다. selectRepair가 repair-form-status를
+        // 비우기 때문에, 먼저 쓰면 이 안내가 지워집니다.
+        //
+        // DB가 스스로 거부한 경우(P0001, 예: 보낸 수량 초과)는 확실히 안 들어간 것이라
+        // "이미 됐을 수 있다"를 붙이지 않습니다. 절대 없는 기록을 찾게 만듭니다.
         setStatus("repair-form-status",
-            describeError(err, "반납 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표의 '반납수량'이 늘었는지 확인한 뒤 다시 눌러주세요."),
+            describeError(err, maybeDone
+                ? "반납 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표의 '반납수량'과 아래 반납 이력을 확인한 뒤 다시 눌러주세요."
+                : "반납 등록에 실패했습니다."),
             "error");
-        // 수리 현황 표를 새로 읽어 '반납수량'이 늘었는지 눈으로 볼 수 있게 합니다.
-        // (아래 반납 이력은 selectRepair가 채우는데, 그걸 부르면 repair-form-status를
-        //  비워서 위 안내가 지워집니다. 그래서 표만 새로 읽습니다.)
-        await load(true);
     } finally {
         // 그 사이 다른 등록이 새로 시작되지 않았을 때만 버튼을 되돌립니다(위 주석 참고).
         if (mySubmitSeq === submitSeq) {

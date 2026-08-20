@@ -8,7 +8,7 @@ import {
     markPurchasing, receiveRequest, removePurchaseRequest, ALL_STATUSES, OPEN_STATUSES,
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, esc, hasValue, refill } from "../ui.js";
+import { setStatus, describeError, esc, hasValue, refill, isRejectedByDb } from "../ui.js";
 import { dataChanged } from "../refresh.js";
 
 const REQUEST_COLUMNS = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태",
@@ -211,18 +211,32 @@ async function runAction(action, okMessage, failMessage) {
     try {
         await action();
     } catch (err) {
-        setBusy(false);
         // ⚠️ 실패했다고만 말하면 안 됩니다. DB는 처리했는데 응답만 못 받는 경우가 있어서
         // (통신이 끊기는 순간), 그때 다시 누르면 두 번 처리됩니다. 특히 입고는 재고를
         // 늘리는 동작이라 재고가 부풀려지고, 늘어난 재고는 줄어든 재고보다 눈에 덜 띕니다.
         // 성공 문구에는 "다시 누르지 마세요"라고 적어두고 정작 실패 쪽에는 아무 경고가
         // 없었습니다(usage.js의 출고 등록과 같은 처리).
+        //
+        // DB가 스스로 거부한 경우(P0001)는 확실히 안 들어간 것이라 그 안내를 붙이지 않습니다.
+        const maybeDone = !isRejectedByDb(err);
         setStatus("pr-dialog-status",
-            describeError(err, `${failMessage}\n\n통신이 끊긴 경우 이미 처리됐을 수 있습니다. 창을 닫고 목록을 확인한 뒤 다시 눌러주세요.`),
+            describeError(err, maybeDone
+                ? `${failMessage}\n\n통신이 끊긴 경우 이미 처리됐을 수 있습니다. 창을 닫고 목록을 확인한 뒤 다시 눌러주세요.`
+                : failMessage),
             "error");
-        // 목록을 새로 읽어 눈으로 확인할 수 있게 합니다. 이 읽기는 목록 쪽에 안내를 쓰므로
-        // 위 팝업 안내를 덮지 않습니다.
-        await load(true);
+
+        if (maybeDone) {
+            // 재고가 이미 바뀌었을 수 있으므로 다른 화면도 낡은 것으로 표시합니다.
+            dataChanged();
+            // 목록을 새로 읽어 눈으로 확인할 수 있게 합니다. 이 읽기는 목록 쪽에 안내를 쓰므로
+            // 위 팝업 안내를 덮지 않습니다.
+            await load(true);
+        }
+
+        // ⚠️ 버튼은 목록이 갱신된 "뒤에" 풉니다. 먼저 풀면 안내대로 창을 닫고 목록을 봐도
+        // 아직 옛 상태('구매중')라, 이미 된 입고를 한 번 더 누르게 됩니다
+        // (usage.js·repairs.js도 같은 순서입니다).
+        setBusy(false);
         return;
     }
 

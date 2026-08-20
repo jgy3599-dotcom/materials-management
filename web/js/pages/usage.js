@@ -5,7 +5,7 @@ import {
     getUsage, updateUsage, deleteUsage, insertAuditLog,
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
-import { setStatus, describeError, today, esc, refill } from "../ui.js";
+import { setStatus, describeError, today, esc, refill, isRejectedByDb } from "../ui.js";
 import { dataChanged } from "../refresh.js";
 
 const el = (id) => document.getElementById(id);
@@ -458,15 +458,25 @@ async function submit(e) {
         // (통신이 끊기는 순간), 그때 사람이 다시 누르면 이력이 두 번 쌓이고 재고를 깎는
         // 출처였다면 재고도 두 번 깎입니다. 실패와 "됐는데 못 들었다"를 화면에서는
         // 구분할 수 없으므로, 사실대로 알리고 표를 확인하게 합니다.
+        //
+        // 다만 DB가 스스로 거부한 경우(P0001)는 확실히 안 들어간 것이라 그 안내를 붙이면
+        // 안 됩니다. 절대 없는 행을 표에서 찾게 만듭니다.
+        const maybeDone = !isRejectedByDb(err);
         setStatus("usage-form-status",
-            describeError(err,
-                "출고 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표에 방금 것이 있는지 확인한 뒤 다시 눌러주세요."),
+            describeError(err, maybeDone
+                ? "출고 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표(최신순)에 방금 것이 있는지 확인한 뒤 다시 눌러주세요."
+                : "출고 등록에 실패했습니다."),
             "error");
 
-        // 표를 새로 읽어 눈으로 확인할 수 있게 합니다. 끝날 때까지 기다리는 이유는,
-        // 표가 갱신되기 전에 버튼이 풀리면 옛 표를 보고 "없네" 하고 다시 누르기 때문입니다.
-        // 이 읽기가 실패해도 위 안내는 그대로 남습니다(다른 자리에 씁니다).
-        await load(true);
+        if (maybeDone) {
+            // 재고가 이미 바뀌었을 수 있으므로 다른 화면도 낡은 것으로 표시합니다. 안 하면
+            // 자재 목록에 가서 안 깎인 재고를 보고 "역시 안 됐네" 하며 다시 등록하게 됩니다.
+            dataChanged();
+            // 표를 새로 읽어 눈으로 확인할 수 있게 합니다. 끝날 때까지 기다리는 이유는,
+            // 표가 갱신되기 전에 버튼이 풀리면 옛 표를 보고 "없네" 하고 다시 누르기 때문입니다.
+            // 이 읽기가 실패해도 위 안내는 그대로 남습니다(다른 자리에 씁니다).
+            await load(true);
+        }
     } finally {
         btn.disabled = false;
         btn.textContent = "등록하기";

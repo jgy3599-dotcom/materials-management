@@ -260,7 +260,10 @@ export async function getUsageHistory() {
                 opts,
             )
             .eq("direction", "출고")
-            .order("id"));
+            // 최신이 위로 옵니다. 오름차순이면 방금 등록한 건이 4천여 건짜리 표의 맨 마지막
+            // 페이지에 있어서, 등록 직후 확인할 방법이 없습니다(등록이 실패했는지 아닌지
+            // 표에서 확인하라는 안내가 지켜질 수 없었습니다).
+            .order("id", { ascending: false }));
 
     return rows.map((row) => ({
         id: row.id,
