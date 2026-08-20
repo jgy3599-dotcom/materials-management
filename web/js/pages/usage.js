@@ -454,7 +454,19 @@ async function submit(e) {
                 : `'${partName}' 출고가 등록되었습니다.`,
             left !== null && left < 0 ? "warn" : "ok");
     } catch (err) {
-        setStatus("usage-form-status", describeError(err, "출고 등록에 실패했습니다."), "error");
+        // ⚠️ 실패했다고만 말하면 안 됩니다. DB는 처리했는데 응답만 못 받는 경우가 있어서
+        // (통신이 끊기는 순간), 그때 사람이 다시 누르면 이력이 두 번 쌓이고 재고를 깎는
+        // 출처였다면 재고도 두 번 깎입니다. 실패와 "됐는데 못 들었다"를 화면에서는
+        // 구분할 수 없으므로, 사실대로 알리고 표를 확인하게 합니다.
+        setStatus("usage-form-status",
+            describeError(err,
+                "출고 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표에 방금 것이 있는지 확인한 뒤 다시 눌러주세요."),
+            "error");
+
+        // 표를 새로 읽어 눈으로 확인할 수 있게 합니다. 끝날 때까지 기다리는 이유는,
+        // 표가 갱신되기 전에 버튼이 풀리면 옛 표를 보고 "없네" 하고 다시 누르기 때문입니다.
+        // 이 읽기가 실패해도 위 안내는 그대로 남습니다(다른 자리에 씁니다).
+        await load(true);
     } finally {
         btn.disabled = false;
         btn.textContent = "등록하기";
