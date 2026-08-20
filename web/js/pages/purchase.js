@@ -212,7 +212,17 @@ async function runAction(action, okMessage, failMessage) {
         await action();
     } catch (err) {
         setBusy(false);
-        setStatus("pr-dialog-status", describeError(err, failMessage), "error");
+        // ⚠️ 실패했다고만 말하면 안 됩니다. DB는 처리했는데 응답만 못 받는 경우가 있어서
+        // (통신이 끊기는 순간), 그때 다시 누르면 두 번 처리됩니다. 특히 입고는 재고를
+        // 늘리는 동작이라 재고가 부풀려지고, 늘어난 재고는 줄어든 재고보다 눈에 덜 띕니다.
+        // 성공 문구에는 "다시 누르지 마세요"라고 적어두고 정작 실패 쪽에는 아무 경고가
+        // 없었습니다(usage.js의 출고 등록과 같은 처리).
+        setStatus("pr-dialog-status",
+            describeError(err, `${failMessage}\n\n통신이 끊긴 경우 이미 처리됐을 수 있습니다. 창을 닫고 목록을 확인한 뒤 다시 눌러주세요.`),
+            "error");
+        // 목록을 새로 읽어 눈으로 확인할 수 있게 합니다. 이 읽기는 목록 쪽에 안내를 쓰므로
+        // 위 팝업 안내를 덮지 않습니다.
+        await load(true);
         return;
     }
 

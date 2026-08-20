@@ -203,7 +203,18 @@ async function submitReturn(e) {
         // 이 실패 안내는 이제 화면에 없는 건에 대한 것이니 보여주지 않습니다.
         if (selectSeq !== mySelectSeq) return;
         // 보낸 수량보다 많이 반납하려 하면 DB가 거부하고, 그 안내가 여기 그대로 표시됩니다.
-        setStatus("repair-form-status", describeError(err, "반납 등록에 실패했습니다."), "error");
+        //
+        // 그 밖의 실패에는 "이미 됐을 수 있다"를 덧붙입니다. DB는 처리했는데 응답만 못 받는
+        // 경우가 있어서(통신이 끊기는 순간), 다시 누르면 같은 반납이 두 번 들어가 '정상복귀'면
+        // 재고가 두 번 늘어납니다. 보낸 수량에 여유가 없으면 DB의 초과 반납 검사가 막아주지만,
+        // 여유가 있으면 그대로 통과합니다(usage.js·purchase.js와 같은 처리).
+        setStatus("repair-form-status",
+            describeError(err, "반납 등록에 실패했습니다.\n\n통신이 끊긴 경우 이미 등록됐을 수 있습니다. 위 표의 '반납수량'이 늘었는지 확인한 뒤 다시 눌러주세요."),
+            "error");
+        // 수리 현황 표를 새로 읽어 '반납수량'이 늘었는지 눈으로 볼 수 있게 합니다.
+        // (아래 반납 이력은 selectRepair가 채우는데, 그걸 부르면 repair-form-status를
+        //  비워서 위 안내가 지워집니다. 그래서 표만 새로 읽습니다.)
+        await load(true);
     } finally {
         // 그 사이 다른 등록이 새로 시작되지 않았을 때만 버튼을 되돌립니다(위 주석 참고).
         if (mySubmitSeq === submitSeq) {
