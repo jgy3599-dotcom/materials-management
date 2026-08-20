@@ -72,10 +72,16 @@ export async function load(force = false) {
         if (seq !== loadSeq) return null;
         // 수정 창은 두 번 눌러야 열립니다. 한 번 누르는 것만으로 열리면 표를 훑다가
         // 실수로 열기 쉽습니다. 한 번 누르면 행이 선택만 되어 어느 줄인지 보입니다.
+        // 한 번 클릭은 출고로 보낼 자재를 고르는 것이라 모든 사용자에게 엽니다.
+        // 두 번 클릭(수정/삭제 창)은 예전처럼 관리자에게만 붙입니다.
         renderTable(TABLE_ID, rows, COLUMNS, {
-            selectable: isAdmin,
+            selectable: true,
+            onRowClick: (row) => showJump(row),
             onRowDblClick: isAdmin ? (row) => openDialog(row) : null,
         });
+        // 표를 새로 그리면 골랐던 행이 풀립니다. 이동 버튼만 남아 있으면 이미 선택이
+        // 풀린 자재를 출고로 보내게 됩니다(usage.js의 clearJump와 같은 이유).
+        clearJump();
         el("materials-count").textContent =
             `총 ${rows.length.toLocaleString()}건의 자재가 등록되어 있습니다.`;
         setStatus("materials-status", "");
@@ -95,6 +101,21 @@ export async function load(force = false) {
         if (seq === loadSeq && isSuperAdmin) loadAuditLog();
     }
     return null;
+}
+
+
+// 표에서 고른 자재를 출고 등록으로 보내는 버튼입니다. 자재를 찾는 일은 이 표가 이미
+// 잘하므로(컬럼마다 검색), 여기서 고른 것을 그대로 넘겨 출고 화면에서 다시 찾지 않게 합니다.
+function showJump(row) {
+    el("materials-jump-btn").dataset.materialId = String(row.id);
+    el("materials-jump-btn").textContent = `→ '${row["부품명(규격)"]}' 출고 등록하기`;
+    el("materials-jump").classList.remove("hidden");
+}
+
+
+function clearJump() {
+    el("materials-jump").classList.add("hidden");
+    el("materials-jump-btn").dataset.materialId = "";
 }
 
 
@@ -433,7 +454,12 @@ async function removeMaterial() {
 }
 
 
-export function init() {
+export function init(jumpToUsage) {
+    el("materials-jump-btn").addEventListener("click", (e) => {
+        const id = e.currentTarget.dataset.materialId;
+        if (id) jumpToUsage?.(Number(id));
+    });
+
     el("materials-excel-btn").addEventListener("click", async () => {
         await downloadTableExcel(TABLE_ID, COLUMNS, "자재목록.xlsx");
     });
@@ -506,6 +532,9 @@ export function setUser(session, admin, superAdmin) {
         if (dlg.open) dlg.close();
         openMaterial = null;
         setBusy(false);   // openMaterial을 비운 뒤에 불러야 저장·삭제가 잠긴 채로 풀립니다
+        // 표를 위에서 비웠으니 고른 행도 없습니다. 이동 버튼만 남으면 앞사람이 고른
+        // 자재를 뒷사람이 출고로 보내게 됩니다.
+        clearJump();
     }
 
     el("materials-edit-hint").textContent = isAdmin

@@ -198,6 +198,54 @@ export async function load(force = false) {
 }
 
 
+// 자재 목록 화면에서 고른 자재를 그대로 받아 부품칸에 담습니다(main.js가 연결합니다).
+// 자재를 찾는 일은 자재 목록 표가 이미 잘하므로, 거기서 고른 것을 여기서 다시 찾지
+// 않게 하려는 것입니다.
+//
+// 수량·일자·출처는 건드리지 않습니다. 사람이 판단해서 채우는 칸이고, 특히 출처는
+// 재고를 깎을지를 정하는 칸이라 미리 골라두면 안 됩니다.
+export async function selectPart(materialId) {
+    // 출고 화면을 아직 한 번도 안 열었으면 자재 목록이 비어 있습니다. 먼저 채웁니다.
+    // (이미 읽었으면 load가 그냥 빠져나갑니다.)
+    await load();
+
+    const target = materials.find((m) => m.id === materialId);
+    if (!target) {
+        // 자재 목록을 못 읽었거나, 그 사이 자재가 지워진 경우입니다. 조용히 넘어가면
+        // 사람은 부품이 담긴 줄 알고 수량만 채워 등록을 누르게 됩니다.
+        setStatus("usage-form-status",
+            "고른 자재를 부품 목록에서 찾지 못했습니다. 목록을 새로고침한 뒤 다시 골라주세요.", "error");
+        return;
+    }
+
+    // 카테고리칸도 그 자재에 맞춥니다. 앞서 다른 카테고리로 좁혀둔 상태면 그 부품이
+    // 목록에 아예 없어서 골라지지 않습니다.
+    el("usage-category").value = target["카테고리"] ?? "전체";
+    // 그 카테고리가 선택칸에 없으면 value 대입이 조용히 무시되고 앞 값이 남습니다.
+    // 그러면 아래에서 부품이 목록에 없어 안 담기므로, '전체'로 되돌려 확실히 담습니다.
+    if (el("usage-category").value !== (target["카테고리"] ?? "전체")) {
+        el("usage-category").value = "전체";
+    }
+    fillPartOptions();
+    el("usage-part").value = String(materialId);
+
+    // 실제로 담겼는지 확인합니다. 안 담겼는데 "골라뒀습니다"라고 하면, 사람은 수량만
+    // 채우고 등록을 눌렀다가 "부품을 선택해주세요"에서 막혀 영문을 모릅니다.
+    if (el("usage-part").value !== String(materialId)) {
+        setStatus("usage-form-status",
+            "고른 자재를 부품칸에 담지 못했습니다. 부품 목록에서 직접 골라주세요.", "error");
+        return;
+    }
+
+    setStatus("usage-form-status",
+        `'${target["부품명(규격)"]}'를 골라뒀습니다. 수량과 출처를 채워 등록하세요.`, "ok");
+
+    // 이 화면은 위쪽이 사용이력 표라 등록 폼이 화면 밖에 있습니다. 스크롤해주지 않으면
+    // 넘어와도 아무 일이 없는 것처럼 보입니다.
+    el("usage-form").scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+
 // 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
 // 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
 export function invalidate() {

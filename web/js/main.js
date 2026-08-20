@@ -190,7 +190,13 @@ for (const btn of document.querySelectorAll("[data-page]")) {
 
 // 각 화면의 버튼 동작을 연결합니다. 로그인 여부와 상관없이 한 번만 하면 됩니다.
 boqPage.init();
-materialsPage.init();
+// 자재 목록에서 자재를 고르면 그 자재로 출고 등록을 시작할 수 있게 연결합니다.
+// 자재를 찾는 일은 자재 목록 표가 이미 잘하므로(컬럼마다 검색), 거기서 고른 것을
+// 그대로 넘겨 출고 화면에서 다시 찾지 않게 합니다.
+materialsPage.init((materialId) => {
+    goToPage("usage");
+    usagePage.selectPart(materialId);
+});
 purchasePage.init();
 repairsPage.init();
 registerPage.init();
