@@ -125,11 +125,14 @@
                     </div>
                     <p class="caption" id="materials-count"></p>
                     <p class="caption hidden" id="materials-status"></p>
-                    <!-- 표에서 자재를 고르면 나타납니다. 사용이력 화면의 'BOQ 검색으로 이동'과 같은 방식입니다. -->
+                    <div id="materials-table"></div>
+                    <!-- 표에서 자재를 고르면 나타납니다. 사용이력 화면의 'BOQ 검색으로 이동'과 같은 방식입니다.
+                         ⚠️ 반드시 표 '아래'에 두어야 합니다. 표 위에 두면 첫 클릭에 이 줄이 나타나면서
+                         표가 통째로 밀려 내려가, 관리자가 두 번 클릭해 수정 창을 열려 할 때 두 번째
+                         클릭이 다른 행에 떨어집니다(그러면 수정 창이 아예 안 열립니다). -->
                     <p class="hidden" id="materials-jump" style="margin:10px 0">
                         <button id="materials-jump-btn" data-material-id=""></button>
                     </p>
-                    <div id="materials-table"></div>
                     <p class="caption">
                         컬럼 제목 아래 칸에 입력하면 걸러집니다. 엑셀은 화면에 보이는 결과 그대로 받습니다.
                     </p>

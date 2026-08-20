@@ -107,6 +107,14 @@ export async function load(force = false) {
 // 표에서 고른 자재를 출고 등록으로 보내는 버튼입니다. 자재를 찾는 일은 이 표가 이미
 // 잘하므로(컬럼마다 검색), 여기서 고른 것을 그대로 넘겨 출고 화면에서 다시 찾지 않게 합니다.
 function showJump(row) {
+    // 표는 이미 고른 행을 다시 누르면 선택을 끕니다(Tabulator의 기본 동작). 그때도
+    // 이 함수는 불리므로, 그냥 두면 선택 표시는 사라졌는데 버튼만 그 자재를 가리킨 채
+    // 남습니다. 같은 자재를 다시 누른 것이면 버튼도 함께 내립니다.
+    if (el("materials-jump-btn").dataset.materialId === String(row.id)) {
+        clearJump();
+        return;
+    }
+
     el("materials-jump-btn").dataset.materialId = String(row.id);
     el("materials-jump-btn").textContent = `→ '${row["부품명(규격)"]}' 출고 등록하기`;
     el("materials-jump").classList.remove("hidden");

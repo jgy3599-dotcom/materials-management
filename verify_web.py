@@ -147,33 +147,46 @@ def main():
             if page.locator("#materials-jump-btn").count() == 0:
                 check("자재→출고 보내기 버튼이 배포되어 있다", False, "아직 배포 전입니다")
             else:
+                # ⚠️ 기다림은 반드시 감쌉니다. 이 기능이 진짜로 고장 나면 여기서 예외가 나서
+                #    [5] 이후 검사가 통째로 안 돌아갑니다(위 202행의 경고와 같은 이유).
                 row = page.locator("#materials-table .tabulator-row").first
                 part_name = row.locator(".tabulator-cell").nth(2).inner_text().strip()
                 row.click()
-                page.wait_for_selector("#materials-jump:not(.hidden)", timeout=10000)
-                check("행을 고르면 '출고 등록하기' 버튼이 뜬다",
-                      "출고 등록하기" in page.locator("#materials-jump-btn").inner_text())
+                try:
+                    page.wait_for_selector("#materials-jump:not(.hidden)", timeout=10000)
+                    shown = "출고 등록하기" in page.locator("#materials-jump-btn").inner_text()
+                except Exception:
+                    shown = False
+                check("행을 고르면 '출고 등록하기' 버튼이 뜬다", shown)
 
-                page.click("#materials-jump-btn")
-                page.wait_for_selector("#page-usage:not(.hidden)", timeout=20000)
-                # selectPart가 자재 목록을 먼저 불러올 수 있어 값이 찰 때까지 기다립니다.
-                page.wait_for_function(
-                    "document.getElementById('usage-part').value !== ''", timeout=30000)
+                if not shown:
+                    check("출고 화면으로 넘어가며 부품칸이 채워진다", False, "버튼이 없어 확인하지 못했습니다")
+                else:
+                    page.click("#materials-jump-btn")
+                    # selectPart가 자재 목록을 먼저 불러올 수 있어 값이 찰 때까지 기다립니다.
+                    try:
+                        page.wait_for_selector("#page-usage:not(.hidden)", timeout=20000)
+                        page.wait_for_function(
+                            "document.getElementById('usage-part').value !== ''", timeout=30000)
+                        picked = page.locator("#usage-part").input_value()
+                    except Exception:
+                        picked = ""
 
-                picked = page.locator("#usage-part").input_value()
-                check("출고 화면으로 넘어가며 부품칸이 채워진다", picked.isdigit(), f"material_id={picked}")
+                    check("출고 화면으로 넘어가며 부품칸이 채워진다", picked.isdigit(),
+                          f"material_id={picked!r}")
 
-                label = page.locator("#usage-part option:checked").inner_text()
-                check("담긴 부품이 자재 목록에서 고른 그 자재다",
-                      bool(part_name) and part_name in label, f"목록={part_name!r} / 폼={label!r}")
+                    if picked.isdigit():
+                        label = page.locator("#usage-part option:checked").inner_text()
+                        check("담긴 부품이 자재 목록에서 고른 그 자재다",
+                              bool(part_name) and part_name in label,
+                              f"목록={part_name!r} / 폼={label!r}")
+                        # 수량·출처는 사람이 채우는 칸이라 건드리면 안 됩니다.
+                        check("출처는 비어 있다(사람이 고르게)",
+                              page.locator("#usage-source").input_value() == "")
+                        # 뒤쪽 검사가 좁혀진 부품 목록을 보지 않도록 카테고리를 되돌립니다.
+                        page.select_option("#usage-category", "전체")
 
-                # 수량·출처는 사람이 채우는 칸이라 건드리면 안 됩니다.
-                check("출처는 비어 있다(사람이 고르게)",
-                      page.locator("#usage-source").input_value() == "")
-
-                # 뒤쪽 검사가 좁혀진 부품 목록을 보지 않도록 카테고리를 되돌립니다.
-                page.select_option("#usage-category", "전체")
-                page.click('.nav-btn[data-page="materials"]')
+                    page.click('.nav-btn[data-page="materials"]')
 
             print("\n[5] 사용(출고) 이력 - 표에 행이 그려지는지")
             page.click('.nav-btn[data-page="usage"]')

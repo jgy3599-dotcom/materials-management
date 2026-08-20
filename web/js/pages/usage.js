@@ -43,6 +43,7 @@ let isAdmin = false;
 let currentEmail = "";
 let openUsage = null;       // 지금 팝업에 열려 있는 출고 이력 (DB에서 새로 읽은 값)
 let busyUsage = false;      // 팝업의 저장·삭제가 DB 응답을 기다리는 중인지
+let inFlightLoad = null;    // 지금 돌고 있는 불러오기 (겹쳐 부르면 이걸 함께 기다립니다)
 
 
 // 부품 선택칸을 채웁니다.
@@ -153,6 +154,26 @@ export async function load(force = false) {
 
     if (loaded && !force) return;
 
+    // 이미 돌고 있는 불러오기가 있으면 새로 시작하지 않고 그것을 함께 기다립니다.
+    // 자재 목록에서 자재를 골라 넘어올 때 화면 전환(goToPage)과 selectPart가 거의 동시에
+    // 부르는데, 그대로 두면 이력 4천여 건과 자재 목록을 두 번씩 받고 먼저 온 쪽은
+    // 아래 순번 가드에 걸려 버려집니다. 결과는 맞지만 제일 느린 경로에서 통신이 두 배입니다.
+    //
+    // 새로고침(force)은 "지금 것을 버리고 다시 읽어라"라는 뜻이므로 기다리지 않습니다.
+    if (inFlightLoad && !force) return inFlightLoad;
+
+    const run = doLoad();
+    inFlightLoad = run;
+    try {
+        await run;
+    } finally {
+        // 그 사이 새로고침이 새 불러오기를 걸었을 수 있으니, 내 것일 때만 치웁니다.
+        if (inFlightLoad === run) inFlightLoad = null;
+    }
+}
+
+
+async function doLoad() {
     // 새로고침을 연달아 누르거나, 불러오는 중에 출고를 등록하면 불러오기가 겹쳐 돕니다.
     // 그때 먼저 시작한 쪽이 늦게 끝나면 낡은 내용(예: 방금 등록한 행이 없는 표)으로
     // 덮어써 버립니다. 그래서 순번을 매겨 두고, 나보다 나중에 시작한 것이 있으면
