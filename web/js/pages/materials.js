@@ -118,11 +118,13 @@ function showJump(row) {
     el("materials-jump-btn").dataset.materialId = String(row.id);
     el("materials-jump-btn").textContent = `→ '${row["부품명(규격)"]}' 출고 등록하기`;
     el("materials-jump").classList.remove("hidden");
-    // 표가 한 쪽에 25행이라 세로로 깁니다. 버튼은 표 아래에 있어서(그래야 두 번 클릭이
-    // 안 밀립니다) 화면 밖에 있기 쉽습니다. 안 보이면 사람은 "아무 일도 안 일어났다"고
-    // 여기고 한 번 더 누르는데, 그러면 위의 토글에 걸려 버튼이 도로 사라집니다.
-    // 'nearest'는 이미 보이면 그냥 두고, 안 보일 때만 최소한으로 움직입니다.
-    el("materials-jump").scrollIntoView({ block: "nearest", behavior: "smooth" });
+    // ⚠️ 여기서 버튼으로 스크롤하면 안 됩니다. 한 번 넣었다가 되돌린 자리입니다.
+    // 이 화면은 문서 전체가 스크롤되고(.content에 overflow가 없습니다) 표가 한 쪽에
+    // 25행이라, 버튼이 화면 밖이면 페이지가 수백 px 밀립니다. Tabulator는 클릭 한 번마다
+    // rowClick을 쏘므로, 관리자가 두 번 클릭해 수정 창을 열 때 첫 클릭이 이 스크롤을
+    // 시작시키고 두 번째 클릭이 다른 행에 떨어집니다 — 엉뚱한 자재의 삭제 창이 열립니다.
+    // index.html에 버튼을 표 아래 두라고 적어둔 것과 정확히 같은 이유입니다.
+    // 눌렸다는 신호는 고른 행의 노란 표시(style.css의 tabulator-selected)가 해줍니다.
 }
 
 
