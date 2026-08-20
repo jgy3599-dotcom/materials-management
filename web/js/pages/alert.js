@@ -9,6 +9,7 @@ const TABLE_ID = "alert-table";
 let needPurchase = [];
 let loaded = false;
 let loadSeq = 0;       // 불러오기 순번 (늦게 시작한 것만 화면에 그리려고)
+let lastUserKey = null;    // 로그인한 사람이 바뀌었는지 가리는 값
 
 
 function applyFilter() {
@@ -60,9 +61,32 @@ export async function load(force = false) {
 
 // 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
 // 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+// ⚠️ 표는 비우지 않습니다. 이 함수는 재고가 바뀔 때마다 불리므로, 여기서 비우면
+// 보고 있던 목록이 눈앞에서 사라집니다. 사람이 바뀔 때 비우는 것은 아래 setUser입니다.
 export function invalidate() {
     loaded = false;
     loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
+}
+
+
+// 사람이 바뀌면 앞사람이 보던 목록을 버립니다 — main.js의 render() 참고.
+// 이 화면에는 입력 폼도 권한 구분도 없지만, 표는 반드시 비워야 합니다. Tabulator가
+// 행을 들고 있어서(table.js) 로그아웃해도 남고, 다음 사람이 이 메뉴를 열면 goToPage의
+// redrawTable이 앞사람 행을 그대로 다시 그립니다. 그 상태에서 다시 읽기가 실패하면
+// 빨간 오류 옆에 앞사람 시점의 부족 목록이 남고, 엑셀 버튼은 표에서 바로 가져가므로
+// 낡은 목록이 파일로 나갑니다(다른 화면들도 같은 이유로 표를 비웁니다).
+export function setUser(session) {
+    const key = session?.user?.email ?? "";
+    if (key && key === lastUserKey) return;
+
+    lastUserKey = key;
+    loaded = false;
+    loadSeq++;
+    needPurchase = [];
+    renderTable(TABLE_ID, [], COLUMNS);
+    document.getElementById("alert-count").textContent = "";
+    // 무효로 만든 불러오기는 자기가 써둔 "불러오는 중..."을 지우지 않고 물러납니다.
+    setStatus("alert-status", "");
 }
 
 
