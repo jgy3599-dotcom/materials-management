@@ -9,6 +9,7 @@ import {
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, esc, hasValue, refill } from "../ui.js";
+import { dataChanged } from "../refresh.js";
 
 const REQUEST_COLUMNS = ["id", "부품명(규격)", "표준재고", "현재재고", "요청수량", "상태",
                          "요청자", "거래업체", "단가", "입고수량", "요청일시"];
@@ -147,6 +148,14 @@ export async function load(force = false) {
 }
 
 
+// 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
+// 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+export function invalidate() {
+    loaded = false;
+    loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
+}
+
+
 // ---------------------------------------------------------------------------
 // 요청 처리 팝업 - 상태에 따라 보여주는 버튼과 입력칸이 달라집니다
 // ---------------------------------------------------------------------------
@@ -207,6 +216,11 @@ async function runAction(action, okMessage, failMessage) {
         return;
     }
 
+    // 다른 화면이 들고 있는 내용을 낡은 것으로 표시합니다. 입고 처리는 재고를 늘리고,
+    // 나머지 단계 이동도 요청 목록을 바꿉니다. 아래의 load(true)가 이 화면의 표시는
+    // 도로 켜줍니다.
+    dataChanged();
+
     setBusy(false);
     document.getElementById("pr-dialog").close();
     const reloadError = await load(true);
@@ -260,6 +274,8 @@ async function deleteRequest() {
         setBusy(false);
         return;
     }
+
+    dataChanged();   // 입고완료였던 요청을 지우면 재고가 도로 줄어듭니다
 
     // ⚠️ 재고는 지운 직후에 바로 읽습니다. 목록 새로고침(자재·요청·이력을 수천 건
     // 받아옴) 뒤에 읽으면 그 몇 초 사이 다른 사람의 출고·입고 한 건만으로도 값이
@@ -339,6 +355,7 @@ async function submitRequest(e) {
         // 중복 요청 경고에 쓸 건수는 등록 전에 세어둡니다(등록하면 1건 늘어나므로).
         const openCount = await countOpenRequests(materialId);
         await insertPurchaseRequest(materialId, qty, requester, note);
+        dataChanged();   // 요청 목록이 바뀌었습니다(재고는 아직 그대로입니다)
 
         // 그 사이 사람이 바뀌었으면 여기서 그만둡니다. 등록 자체는 이미 끝났고, 아래의
         // 안내와 요청사유 지우기는 지금 화면을 보고 있는 사람의 것이 아닙니다.

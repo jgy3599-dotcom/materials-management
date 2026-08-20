@@ -5,6 +5,7 @@ import {
 } from "../db.js";
 import { renderTable, redrawTable, downloadTableExcel, getTableRowCount } from "../table.js";
 import { setStatus, describeError } from "../ui.js";
+import { dataChanged } from "../refresh.js";
 
 // 표에 보여줄 컬럼과 순서입니다. id는 화면에 필요 없어 뺐습니다.
 const COLUMNS = [
@@ -94,6 +95,14 @@ export async function load(force = false) {
         if (seq === loadSeq && isSuperAdmin) loadAuditLog();
     }
     return null;
+}
+
+
+// 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
+// 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+export function invalidate() {
+    loaded = false;
+    loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
 }
 
 
@@ -273,6 +282,10 @@ async function saveMaterial(e) {
         setBusy(false);
         return;
     }
+    // 다른 화면(구매 필요 알림·출고 부품칸 등)이 들고 있는 내용을 낡은 것으로 표시합니다.
+    // 아래의 재고 반영까지 기다리지 않고 여기서 알립니다 — 재고 반영이 실패해도 항목은
+    // 이미 바뀌었고, 실패 자체가 "DB는 처리했는데 응답만 못 받은" 경우일 수 있습니다.
+    dataChanged();
 
     let finalQty = before;
     if (after !== before) {
@@ -372,6 +385,8 @@ async function removeMaterial() {
         setBusy(false);
         return;
     }
+
+    dataChanged();   // 다른 화면의 내용을 낡은 것으로 표시합니다
 
     // 자재는 이미 지워졌습니다. 감사 로그가 실패해도 목록은 새로 읽어야 합니다.
     // 안 그러면 지워진 자재가 화면에 남은 채 "삭제 실패"라고 나옵니다.

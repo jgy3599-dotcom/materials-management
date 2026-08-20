@@ -6,6 +6,7 @@ import {
 } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, today, esc, refill } from "../ui.js";
+import { dataChanged } from "../refresh.js";
 
 const el = (id) => document.getElementById(id);
 
@@ -197,6 +198,14 @@ export async function load(force = false) {
 }
 
 
+// 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
+// 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+export function invalidate() {
+    loaded = false;
+    loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
+}
+
+
 // 사람이 바뀌면 앞사람이 적던 폼과 안내 문구를 비우고, 표는 다시 읽도록 되돌립니다.
 // 로그아웃할 때(session이 없을 때)와 로그인할 때 양쪽에서 불립니다 — main.js의 render() 참고.
 //
@@ -320,6 +329,10 @@ async function submit(e) {
             partMemo: document.getElementById("usage-memo").value.trim(),
             note: document.getElementById("usage-note").value.trim(),
         });
+
+        // 다른 화면(자재 목록·구매 필요 알림·수리 관리)이 들고 있는 내용을 낡은 것으로
+        // 표시합니다. 바로 아래의 load(true)가 이 화면의 표시는 도로 켜줍니다.
+        dataChanged();
 
         document.getElementById("usage-form").reset();
         // reset()은 부품 선택칸을 첫 항목, 곧 맨 위의 빈 항목으로 되돌립니다. 그래서 방금
@@ -643,6 +656,7 @@ function initUsageDialog() {
         setStatus("ud-dialog-status", "저장하는 중...");
         try {
             await updateUsage(target.id, values);
+            dataChanged();   // 다른 화면의 내용을 낡은 것으로 표시합니다
         } catch (err) {
             setStatus("ud-dialog-status", describeError(err, "저장하지 못했습니다."), "error");
             setUsageBusy(false);
@@ -689,6 +703,7 @@ function initUsageDialog() {
         setStatus("ud-dialog-status", "지우는 중...");
         try {
             await deleteUsage(target.id);
+            dataChanged();   // 다른 화면의 내용을 낡은 것으로 표시합니다
         } catch (err) {
             setStatus("ud-dialog-status", describeError(err, "지우지 못했습니다."), "error");
             setUsageBusy(false);

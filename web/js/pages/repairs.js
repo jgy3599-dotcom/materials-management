@@ -5,6 +5,7 @@
 import { getRepairs, getRepairReturns, addRepairReturn } from "../db.js";
 import { renderTable, downloadTableExcel } from "../table.js";
 import { setStatus, describeError, esc, today } from "../ui.js";
+import { dataChanged } from "../refresh.js";
 
 const COLUMNS = ["id", "부품명(규격)", "보낸수량", "반납수량", "상태", "보낸날짜", "보낸곳", "사유", "예상복귀일", "비고"];
 const RETURN_COLUMNS = ["반납수량", "반납일", "결과", "비고"];
@@ -50,6 +51,14 @@ export async function load(force = false) {
         loaded = false;
         return null;
     }
+}
+
+
+// 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
+// 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+export function invalidate() {
+    loaded = false;
+    loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
 }
 
 
@@ -150,6 +159,10 @@ async function submitReturn(e) {
             outcome,
             document.getElementById("repair-note").value.trim(),
         );
+
+        // 다른 화면이 들고 있는 내용을 낡은 것으로 표시합니다('정상복귀'면 재고가 늘어납니다).
+        // 아래의 load(true)가 이 화면의 표시는 도로 켜줍니다.
+        dataChanged();
 
         let message;
         if (outcome === "정상복귀" && !hasMaterial) {

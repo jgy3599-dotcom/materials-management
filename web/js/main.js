@@ -2,6 +2,7 @@
 import { getSession, getRole, isAdmin, isSuperAdmin, signIn, signOut, onAuthChange, enforceMaxSession } from "./auth.js";
 import { getDashboardSummary } from "./db.js";
 import { redrawTable } from "./table.js";
+import { onDataChanged } from "./refresh.js";
 import * as boqPage from "./pages/boq.js";
 import * as materialsPage from "./pages/materials.js";
 import * as usagePage from "./pages/usage.js";
@@ -31,6 +32,16 @@ const PAGES = {
 };
 
 let currentPage = "boq";
+
+// 재고나 자재가 바뀌면 모든 화면의 "이미 읽었음" 표시를 지웁니다. 그 화면을 다음에 열 때
+// goToPage가 load()를 부르면서 새로 읽어옵니다. 여기서 바로 읽지는 않습니다 — 볼 일도
+// 없는 화면까지 매번 불러오면 통신만 늘어납니다.
+//
+// 신호를 보낸 화면 자신도 함께 꺼지지만, 그 화면은 곧이어 스스로 load(true)로 다시 읽어
+// 표시를 도로 켭니다. 그래서 "누가 보냈는지"를 따질 필요가 없습니다.
+//
+// BOQ 화면은 검색할 때마다 새로 받아오므로 들고 있는 내용이 없습니다.
+const REFRESHABLE = [materialsPage, usagePage, purchasePage, repairsPage, registerPage, alertPage];
 
 
 function show(view) {
@@ -178,6 +189,14 @@ usagePage.init((equipmentId) => {
     goToPage("boq");
     document.getElementById("boq-input").value = equipmentId;
     boqPage.search(equipmentId);
+});
+
+// 재고나 자재를 바꾸는 동작이 끝나면 화면들이 여기로 알려옵니다(위의 REFRESHABLE 설명 참고).
+// 맨 위 요약도 같이 다시 셉니다 — 같은 화면에 머무른 채 출고를 계속 등록하면 goToPage가
+// 안 불려서, "표준재고 부족" 카드가 옛 숫자로 남기 때문입니다.
+onDataChanged(() => {
+    for (const page of REFRESHABLE) page.invalidate();
+    loadSummary();
 });
 
 // 로그인 후 정해진 시간이 지났으면 로그아웃시킵니다. 페이지를 열자마자 먼저 한 번

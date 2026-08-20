@@ -1,6 +1,7 @@
 // 자재 등록 화면입니다.
 import { getCategories, insertMaterial, insertAuditLog } from "../db.js";
 import { setStatus, describeError, esc } from "../ui.js";
+import { dataChanged } from "../refresh.js";
 
 const NEW_CATEGORY = "➕ 새 카테고리 직접 입력";
 
@@ -51,6 +52,16 @@ export async function load(force = false) {
         // 오갔다 돌아와도 낡은 내용을 그대로 둡니다.
         loaded = false;
     }
+}
+
+
+// 재고나 자재가 바뀌었을 때 main.js가 불러줍니다. 여기서는 "다시 읽어라"고 표시만
+// 하고, 실제로 읽는 것은 사용자가 이 화면을 열 때입니다.
+// (이 화면이 들고 있는 것은 카테고리 목록입니다. 자재를 새로 등록하면 없던 카테고리가
+//  생길 수 있어서 같이 다시 읽습니다.)
+export function invalidate() {
+    loaded = false;
+    loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
 }
 
 
@@ -113,6 +124,11 @@ async function submit(e) {
             setStatus("reg-form-status", describeError(err, "자재 등록에 실패했습니다."), "error");
             return;
         }
+
+        // 새 자재가 생겼으니 다른 화면(자재 목록·출고 부품칸 등)의 내용을 낡은 것으로
+        // 표시합니다. 이 화면의 카테고리 목록도 함께 꺼지지만, 아래 load(true)가 도로
+        // 켜줍니다(사람이 바뀌어 건너뛰더라도 꺼진 채로 남아 다음에 읽습니다).
+        dataChanged();
 
         // 여기서부터 자재는 이미 만들어졌습니다. 감사 로그가 실패했다고 "등록 실패"라고
         // 하면 사용자가 당연히 다시 누르고, 같은 자재가 두 건 생깁니다. 그래서 성공은
