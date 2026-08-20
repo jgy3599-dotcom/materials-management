@@ -272,6 +272,10 @@ export async function selectPart(materialId) {
 export function invalidate() {
     loaded = false;
     loadSeq++;   // 돌고 있던 불러오기가 loaded를 도로 켜지 못하게 무효로 만듭니다
+    // ⚠️ 순번을 올렸으면 여기도 반드시 비웁니다. 안 그러면 뒤따르는 load()가 이미
+    // 버려질 운명인(순번이 어긋나 아무것도 안 그리는) 불러오기에 올라타서, 표도
+    // 부품칸도 빈 채 오류 문구도 없이 남습니다.
+    inFlightLoad = null;
 }
 
 
@@ -301,6 +305,7 @@ export function setUser(session, admin) {
     // 불러오기가 뒤늦게 끝나면서 앞사람이 보던 내용을 그리고 "이미 읽었음"으로 표시해,
     // 뒷사람이 화면을 열어도 다시 읽지 않습니다.
     loadSeq++;
+    inFlightLoad = null;   // 위 invalidate와 같은 이유입니다
     // 앞사람의 안내 문구("...출고가 등록되었습니다")와 눌리는 이동 버튼도 지웁니다.
     setStatus("usage-status", "");
     setStatus("usage-form-status", "");

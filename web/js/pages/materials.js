@@ -118,6 +118,11 @@ function showJump(row) {
     el("materials-jump-btn").dataset.materialId = String(row.id);
     el("materials-jump-btn").textContent = `→ '${row["부품명(규격)"]}' 출고 등록하기`;
     el("materials-jump").classList.remove("hidden");
+    // 표가 한 쪽에 25행이라 세로로 깁니다. 버튼은 표 아래에 있어서(그래야 두 번 클릭이
+    // 안 밀립니다) 화면 밖에 있기 쉽습니다. 안 보이면 사람은 "아무 일도 안 일어났다"고
+    // 여기고 한 번 더 누르는데, 그러면 위의 토글에 걸려 버튼이 도로 사라집니다.
+    // 'nearest'는 이미 보이면 그냥 두고, 안 보일 때만 최소한으로 움직입니다.
+    el("materials-jump").scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 

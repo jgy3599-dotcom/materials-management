@@ -152,6 +152,13 @@ def main():
                 row = page.locator("#materials-table .tabulator-row").first
                 part_name = row.locator(".tabulator-cell").nth(2).inner_text().strip()
                 row.click()
+                # ⚠️ 위 [4] 앞부분에서 이미 첫 행을 눌러(+더블클릭) 뒀습니다. 그 자재가
+                #    아직 골라진 상태면 이 클릭은 '선택 끄기'로 동작해 버튼이 도로 숨습니다.
+                #    그러면 멀쩡한 기능인데 검사가 실패로 찍힙니다. 꺼졌으면 한 번 더 눌러
+                #    켭니다(같은 행을 두 번 누르면 다시 켜집니다).
+                page.wait_for_timeout(300)
+                if page.locator("#materials-jump.hidden").count():
+                    row.click()
                 try:
                     page.wait_for_selector("#materials-jump:not(.hidden)", timeout=10000)
                     shown = "출고 등록하기" in page.locator("#materials-jump-btn").inner_text()
@@ -183,7 +190,11 @@ def main():
                         # 수량·출처는 사람이 채우는 칸이라 건드리면 안 됩니다.
                         check("출처는 비어 있다(사람이 고르게)",
                               page.locator("#usage-source").input_value() == "")
-                        # 뒤쪽 검사가 좁혀진 부품 목록을 보지 않도록 카테고리를 되돌립니다.
+                    # 뒤쪽 검사가 좁혀진 부품 목록을 보지 않도록 카테고리를 되돌립니다.
+                    # ⚠️ 성공했을 때만 되돌리면 안 됩니다. selectPart는 카테고리를 먼저
+                    #    좁힌 뒤 부품 담기에 실패할 수 있어서, 정작 되돌려야 하는 경우가
+                    #    실패한 경우입니다.
+                    if page.locator("#page-usage:not(.hidden)").count():
                         page.select_option("#usage-category", "전체")
 
                     page.click('.nav-btn[data-page="materials"]')

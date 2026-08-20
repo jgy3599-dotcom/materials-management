@@ -503,6 +503,17 @@ input[type="date"] {
     background: #262B32;
 }
 
+/* 고른 행 표시. Tabulator 테마에도 규칙이 있지만(.tabulator-row.tabulator-selected),
+   특이도가 위의 .tabulator .tabulator-row와 같고 우리 CSS가 나중에 로드돼서 덮여버립니다.
+   그래서 여기서 다시 씁니다 — 안 그러면 행을 눌러도 아무 표시가 안 납니다.
+   노랑은 "지금 여기"를 가리키는 색이라(맨 위 --mark 설명) 고른 행에 딱 맞습니다.
+   줄무늬(.tabulator-row-even)보다 특이도가 높아야 짝수 줄에서도 보입니다. */
+.tabulator .tabulator-row.tabulator-selected,
+.tabulator .tabulator-row.tabulator-selected.tabulator-row-even {
+    background: #2A3038;
+    box-shadow: inset 2px 0 0 var(--mark);
+}
+
 .tabulator .tabulator-header-filter input {
     padding: 4px 6px;
     font-size: 12px;
