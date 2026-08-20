@@ -490,7 +490,7 @@ begin
 
     if v_repair_id is not null
        and exists (select 1 from repair_returns where repair_id = v_repair_id) then
-        raise exception '수리 반납이 등록되어 있어 고칠 수 없습니다. 수리 관리에서 반납을 먼저 취소하세요.';
+        raise exception '수리 반납이 등록되어 있어 고칠 수 없습니다. 관리자에게 문의하세요.';
     end if;
 
     -- 옛 상태 되돌리기. material_id가 비어 있으면(2026-07 이관분) 0행에 걸려 아무 일도
@@ -550,7 +550,13 @@ grant execute on function update_usage(bigint, date, bigint, integer, text, text
 -- 출고 이력을 지웁니다. 재고 원복·수리 건 삭제·이력 삭제가 한 묶음으로 일어납니다.
 --
 -- 반납이 등록된 건은 거부합니다. 반납은 이미 재고를 되돌려놨는데 여기서 또 되돌리면
--- 두 번 늘어납니다. 반납을 먼저 취소하게 안내하는 쪽이 안전합니다.
+-- 두 번 늘어납니다.
+--
+-- ⚠️ 예전에는 "수리 관리에서 반납을 먼저 취소하세요"라고 안내했는데, 앱에 반납 취소
+-- 기능이 없습니다(repair_returns는 select/insert만). 없는 기능으로 안내하면 사람이
+-- 수리 관리 화면을 뒤지다 못 찾고 헤맵니다. 그 기능을 만들지는 아직 정하지 않았습니다
+-- - 지금은 이 방어에 걸리는 기록 자체가 사실상 없습니다(history_id가 있어야 걸리는데,
+-- 그건 '수리 보냄' 체크로 등록한 출고에만 붙고 옛 이관분 168건에는 없습니다).
 create or replace function delete_usage(p_id bigint)
 returns void
 language plpgsql
@@ -575,7 +581,7 @@ begin
 
     if v_repair_id is not null
        and exists (select 1 from repair_returns where repair_id = v_repair_id) then
-        raise exception '수리 반납이 등록되어 있어 지울 수 없습니다. 수리 관리에서 반납을 먼저 취소하세요.';
+        raise exception '수리 반납이 등록되어 있어 지울 수 없습니다. 관리자에게 문의하세요.';
     end if;
 
     -- 재고 되돌리기. material_id가 비어 있으면(2026-07 이관분) 0행에 걸려 아무 일도
