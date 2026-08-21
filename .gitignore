@@ -9,3 +9,7 @@ ms-playwright/
 
 # superpowers 작업 흔적 (진행 기록·브리프·리뷰 자료). 저장소에 올릴 필요 없습니다.
 .superpowers/
+
+# DB 스냅샷 (snapshot_db.py가 만듭니다). 회사 재고·이력 전체가 들어 있어 저장소에
+# 올리지 않습니다. 되돌릴 때 쓰는 로컬 안전망입니다.
+snapshots/
